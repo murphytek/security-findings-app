@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NES Security Assessment</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --bg-card: #1c2128;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --critical: #f85149;
+  --critical-bg: rgba(248, 81, 73, 0.15);
+  --high: #d29922;
+  --high-bg: rgba(210, 153, 34, 0.15);
+  --medium: #e3b341;
+  --medium-bg: rgba(227, 179, 65, 0.15);
+  --low: #58a6ff;
+  --low-bg: rgba(88, 166, 255, 0.15);
+  --success: #3fb950;
+  --success-bg: rgba(63, 185, 80, 0.15);
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --transition: 0.2s ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header */
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.header h1 span { color: var(--accent); }
+.header-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Stats bar */
+.stats-bar {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.stats-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  gap: 12px;
+  min-width: max-content;
+}
+.stat-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  min-width: 100px;
+  text-align: center;
+}
+.stat-card .stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stat-card .stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.stat-critical .stat-value { color: var(--critical); }
+.stat-high .stat-value { color: var(--high); }
+.stat-medium .stat-value { color: var(--medium); }
+.stat-low .stat-value { color: var(--low); }
+
+/* Filters */
+.filters {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+}
+.filters-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-group label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.filter-select, .search-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border var(--transition);
+}
+.filter-select:focus, .search-input:focus {
+  border-color: var(--accent);
+}
+.search-input {
+  flex: 1;
+  min-width: 180px;
+}
+.filter-select { min-width: 110px; }
+.sort-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.sort-btn:hover, .sort-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Main content */
+.main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+
+/* Finding cards */
+.findings-list { display: flex; flex-direction: column; gap: 10px; }
+.finding-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.finding-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+.finding-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.severity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.severity-CRITICAL { background: var(--critical-bg); color: var(--critical); border: 1px solid var(--critical); }
+.severity-HIGH { background: var(--high-bg); color: var(--high); border: 1px solid var(--high); }
+.severity-MEDIUM { background: var(--medium-bg); color: var(--medium); border: 1px solid var(--medium); }
+.severity-LOW { background: var(--low-bg); color: var(--low); border: 1px solid var(--low); }
+
+.finding-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  flex: 1;
+}
+.finding-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.meta-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.meta-tag.category-hackerone { color: #d2a8ff; }
+.meta-tag.category-code_review { color: #79c0ff; }
+.meta-tag.category-cve_catalog { color: #7ee787; }
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.status-investigating { background: rgba(88,166,255,0.15); color: #58a6ff; }
+.status-confirmed { background: rgba(210,153,34,0.15); color: #d29922; }
+.status-in_progress { background: rgba(210,153,34,0.15); color: #e3b341; }
+.status-fixed { background: rgba(63,185,80,0.15); color: #3fb950; }
+.status-released { background: rgba(63,185,80,0.2); color: #56d364; }
+.status-wont_fix { background: rgba(110,118,129,0.15); color: #8b949e; }
+.status-duplicate { background: rgba(110,118,129,0.15); color: #6e7681; }
+
+.finding-desc-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Detail panel (slide-in on mobile) */
+.detail-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.6);
+}
+.detail-overlay.active { display: flex; }
+.detail-panel {
+  background: var(--bg-secondary);
+  width: 100%;
+  max-width: 700px;
+  margin-left: auto;
+  height: 100%;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  animation: slideIn 0.2s ease;
+}
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.detail-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10;
+}
+.detail-close {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.detail-close:hover { border-color: var(--accent); color: var(--accent); }
+.detail-title {
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+.detail-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+
+.detail-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.detail-section-header {
+  background: var(--bg-tertiary);
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.detail-section-body {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Status dropdown in detail */
+.status-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+}
+.status-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 12px;
+  flex: 1;
+  outline: none;
+}
+.status-select:focus { border-color: var(--accent); }
+.btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--accent-hover); }
+.btn-secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.btn-secondary:hover { border-color: var(--accent); }
+
+/* Comments section */
+.comments-list { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.comment-item {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.comment-author { font-size: 12px; font-weight: 600; color: var(--accent); }
+.comment-time { font-size: 11px; color: var(--text-muted); }
+.comment-text { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.comment-form {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+.comment-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 12px;
+  flex: 1;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  min-height: 38px;
+}
+.comment-input:focus { border-color: var(--accent); }
+
+/* Tags row in detail */
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.empty-state h3 { font-size: 16px; margin-bottom: 8px; color: var(--text-secondary); }
+
+/* Results count */
+.results-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 0;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .header h1 { font-size: 15px; }
+  .header-meta { display: none; }
+  .stat-card { padding: 8px 12px; min-width: 80px; }
+  .stat-card .stat-value { font-size: 20px; }
+  .filters-inner { flex-direction: column; }
+  .filter-group { width: 100%; }
+  .filter-select, .search-input { width: 100%; flex: 1; }
+  .detail-panel { max-width: 100%; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Category icons */
+.cat-icon {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+.cat-hackerone { background: #d2a8ff; }
+.cat-code_review { background: #79c0ff; }
+.cat-cve_catalog { background: #7ee787; }
+
+/* Tab navigation for detail view */
+.detail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  overflow-x: auto;
+}
+.detail-tab {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+.detail-tab:hover { color: var(--text-primary); }
+.detail-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <h1><span>NES</span> Security Assessment</h1>
+    <div class="header-meta">
+      April 2026 &middot; 8 Projects
+    </div>
+  </div>
+</div>
+
+<div class="stats-bar">
+  <div class="stats-inner">
+    <div class="stat-card">
+      <div class="stat-value" id="totalCount">0</div>
+      <div class="stat-label">Total</div>
+    </div>
+    <div class="stat-card stat-critical">
+      <div class="stat-value" id="criticalCount">0</div>
+      <div class="stat-label">Critical</div>
+    </div>
+    <div class="stat-card stat-high">
+      <div class="stat-value" id="highCount">0</div>
+      <div class="stat-label">High</div>
+    </div>
+    <div class="stat-card stat-medium">
+      <div class="stat-value" id="mediumCount">0</div>
+      <div class="stat-label">Medium</div>
+    </div>
+    <div class="stat-card stat-low">
+      <div class="stat-value" id="lowCount">0</div>
+      <div class="stat-label">Low</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color:var(--critical)" id="unpatchedCount">0</div>
+      <div class="stat-label">Unpatched</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" style="color:var(--success)" id="patchedCount">0</div>
+      <div class="stat-label">Patched</div>
+    </div>
+  </div>
+</div>
+
+<div class="filters">
+  <div class="filters-inner">
+    <input type="text" class="search-input" id="searchInput" placeholder="Search findings...">
+    <div class="filter-group">
+      <label>Severity</label>
+      <select class="filter-select" id="severityFilter">
+        <option value="">All</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="LOW">Low</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Project</label>
+      <select class="filter-select" id="projectFilter">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Category</label>
+      <select class="filter-select" id="categoryFilter">
+        <option value="">All</option>
+        <option value="hackerone">HackerOne</option>
+        <option value="code_review">Code Review</option>
+        <option value="cve_catalog">CVE Catalog</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Status</label>
+      <select class="filter-select" id="statusFilter">
+        <option value="">All</option>
+        <option value="investigating">Investigating</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="in_progress">In Progress</option>
+        <option value="fixed">Fixed</option>
+        <option value="released">Released</option>
+        <option value="wont_fix">Won't Fix</option>
+        <option value="duplicate">Duplicate</option>
+      </select>
+    </div>
+    <button class="sort-btn active" id="sortSeverity" onclick="setSort('severity')">Sort: Severity</button>
+    <button class="sort-btn" id="sortProject" onclick="setSort('project')">Sort: Project</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="results-info" id="resultsInfo"></div>
+  <div class="findings-list" id="findingsList"></div>
+</div>
+
+<!-- Detail overlay -->
+<div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
+  <div class="detail-panel" onclick="event.stopPropagation()">
+    <div class="detail-header">
+      <button class="detail-close" onclick="closeDetail()">&larr;</button>
+      <div class="detail-title" id="detailTitle"></div>
+    </div>
+    <div class="detail-tabs">
+      <div class="detail-tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
+      <div class="detail-tab" data-tab="technical" onclick="switchTab('technical')">Technical</div>
+      <div class="detail-tab" data-tab="discussion" onclick="switchTab('discussion')">Discussion</div>
+    </div>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// EMBEDDED FINDINGS DATA
+// ============================================================
+const FINDINGS = [
+  // === CRITICAL / HIGH CODE REVIEW FINDINGS ===
+  {
+    id: "f001", title: "Tomcat Tribes Clustering \u2014 Unfiltered Deserialization",
+    severity: "HIGH", project: "Tomcat", category: "code_review", status: "confirmed",
+    description: "XByteBuffer.java uses ObjectInputStream.readObject() with zero class filtering. RCE via gadget chains when clustering is enabled. POTENTIALLY NOVEL FINDING \u2014 not in any CVE catalog.",
+    affected_files: "XByteBuffer.java \u2014 ObjectInputStream.readObject()",
+    exploitation: "When Tribes clustering is enabled, an attacker on the multicast subnet can send crafted serialized objects to the clustering port. Combined with common gadget chain libraries (commons-collections, etc.), this leads to Remote Code Execution.",
+    remediation: "Add ObjectInputFilter to Tribes deserialization path; audit all NES Tomcat deployments for clustering configuration.",
+    adversarial_verdict: "Confirmed (HIGH, novel) \u2014 strongest Tomcat finding. Clustering not enabled by default; multicast limited to local subnet.",
+    fix_status: "Unpatched", affected_versions: "Tomcat 9.0 / 8.5", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f002", title: "Cocoon Systemic XXE (3 Core Parsers)",
+    severity: "HIGH", project: "Cocoon", category: "code_review", status: "confirmed",
+    description: "Core XML parsers (JaxpSAXParser, JaxpDOMParser, DomHelper) do NOT disable external entities. Only StreamGenerator has XXE protections. This is a systemic framework-level issue.",
+    affected_files: "JaxpSAXParser.java, JaxpDOMParser.java, DomHelper.java",
+    exploitation: "Attacker-controlled XML is processed by any Cocoon pipeline using these core parsers. External entity resolution enables file disclosure (XXE), SSRF, and potentially denial of service.",
+    remediation: "Add XXE protections (disable external entities and DTDs) to JaxpSAXParser and JaxpDOMParser at the framework level.",
+    adversarial_verdict: "Confirmed in source code. Exploitability depends on whether attacker-controlled XML reaches these parsers (sitemap configuration dependent).",
+    fix_status: "Unpatched", affected_versions: "Apache Cocoon", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f003", title: "Cocoon RequestGenerator \u2014 Direct User Input XXE/Injection",
+    severity: "HIGH", project: "Cocoon", category: "code_review", status: "confirmed",
+    description: "Request parameters starting with xml: are parsed as XML and injected into the pipeline. No sitemap misconfiguration required \u2014 directly user-controlled input.",
+    affected_files: "RequestGenerator.java \u2014 xml: parameter prefix handling",
+    exploitation: "Attacker sends HTTP request with parameter name starting with xml: prefix. The value is parsed as XML and injected into the Cocoon pipeline, enabling XXE and injection attacks without any special sitemap configuration.",
+    remediation: "Sanitize or disable the xml: parameter prefix in RequestGenerator.",
+    adversarial_verdict: "Confirmed as the highest-priority Cocoon finding (directly user-controlled).",
+    fix_status: "Unpatched", affected_versions: "Apache Cocoon", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f004", title: "Cocoon SQL Injection in SQLTransformer",
+    severity: "HIGH", project: "Cocoon", category: "code_review", status: "confirmed",
+    description: "escapeSql() only doubles single quotes; ancestor-value has zero escaping; values concatenated directly into SQL strings.",
+    affected_files: "SQLTransformer.java \u2014 escapeSql(), ancestor-value handling",
+    exploitation: "If sitemap passes user input to SQL queries via SQLTransformer, the inadequate escaping allows SQL injection. ancestor-value paths have zero escaping applied.",
+    remediation: "Replace string concatenation with parameterized queries in SQLTransformer.",
+    adversarial_verdict: "Confirmed. Exploitability requires sitemap to pass user input to SQL queries.",
+    fix_status: "Unpatched", affected_versions: "Apache Cocoon", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f005", title: "Spring HTTP Invoker Unsafe Deserialization",
+    severity: "HIGH", project: "Spring", category: "code_review", status: "investigating",
+    description: "HttpInvokerServiceExporter deserializes HTTP request bodies via ObjectInputStream.readObject() with zero filtering. This IS CVE-2016-1000027. Verify NES patch actually adds deserialization filtering \u2014 the reviewed code shows none.",
+    affected_files: "HttpInvokerServiceExporter.java \u2014 readRemoteInvocation()",
+    exploitation: "Attacker sends crafted serialized Java object as HTTP request body to any endpoint using HttpInvokerServiceExporter. Deserialization with no filtering enables RCE via gadget chains.",
+    remediation: "Verify NES patch for CVE-2016-1000027 is effective. Add ObjectInputFilter if missing.",
+    adversarial_verdict: "This IS CVE-2016-1000027 (already in NES catalog as 'Patched'). Verify that the NES patch actually adds deserialization filtering.",
+    fix_status: "Patched (verify)", affected_versions: "Spring Framework 4.3.34", cve_ids: "CVE-2016-1000027", hackerone_id: null
+  },
+  // === Struts 6.8 Code Review ===
+  {
+    id: "f006", title: "Struts ScopeInterceptor OGNL Injection",
+    severity: "MEDIUM", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "ScopeInterceptor evaluates session-sourced values via OGNL, potentially allowing injection if session values are attacker-influenced.",
+    affected_files: "ScopeInterceptor.java", exploitation: "If attacker can influence session-stored values (e.g., via another vulnerability), those values are evaluated as OGNL expressions.",
+    remediation: "Add OGNL expression validation or use value stack operations that don't evaluate arbitrary expressions.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 session-sourced values.", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f007", title: "Struts JacksonXmlHandler No Hardening",
+    severity: "MEDIUM", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "JacksonXmlHandler does not apply deserialization hardening. Default typing or polymorphic handling could lead to deserialization attacks.",
+    affected_files: "JacksonXmlHandler.java", exploitation: "If Jackson default typing is enabled, attacker-controlled XML payloads can trigger arbitrary class instantiation via polymorphic deserialization.",
+    remediation: "Apply Jackson deserialization hardening: disable default typing, add class allowlists.",
+    adversarial_verdict: "Confirmed (Medium).", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f008", title: "Struts JSONPopulator Class Instantiation",
+    severity: "MEDIUM", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "JSONPopulator can instantiate arbitrary classes during JSON deserialization. Needs allowlist analysis to determine exploitability.",
+    affected_files: "JSONPopulator.java", exploitation: "Attacker sends crafted JSON payload that triggers class instantiation of dangerous classes during population.",
+    remediation: "Add class allowlisting to JSONPopulator to restrict which classes can be instantiated.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 needs allowlist analysis.", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f009", title: "Struts DomHelper System Property Classes",
+    severity: "MEDIUM", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "DomHelper loads classes based on system property values, which could be manipulated in certain deployment scenarios.",
+    affected_files: "DomHelper.java", exploitation: "If system properties can be influenced (e.g., via JMX, JNDI, or another vulnerability), DomHelper will load attacker-specified classes.",
+    remediation: "Remove system-property-based class loading in DomHelper or add a class allowlist.",
+    adversarial_verdict: "Confirmed (Medium).", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  // === Solr Code Review ===
+  {
+    id: "f010", title: "Solr ContainerPluginsRegistry Class Loading",
+    severity: "MEDIUM", project: "Solr", category: "code_review", status: "confirmed",
+    description: "ContainerPluginsRegistry performs unrestricted class loading that could be exploited by authenticated users or via other vulnerabilities.",
+    affected_files: "ContainerPluginsRegistry.java", exploitation: "An authenticated Solr admin (or attacker who has gained admin access) can register a plugin that loads arbitrary classes.",
+    remediation: "Add class loading restrictions to ContainerPluginsRegistry.",
+    adversarial_verdict: "Confirmed (Medium).", fix_status: "Unpatched", affected_versions: "Solr 8.11.4", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f011", title: "Solr Replication Handler Path Containment",
+    severity: "MEDIUM", project: "Solr", category: "code_review", status: "confirmed",
+    description: "Replication handler has insufficient path containment checks that could allow reading files outside the intended index directory.",
+    affected_files: "ReplicationHandler.java", exploitation: "Attacker with access to the replication API could potentially read files outside the Solr index directory.",
+    remediation: "Add proper path canonicalization and containment checks to the replication handler.",
+    adversarial_verdict: "Confirmed (Medium).", fix_status: "Unpatched", affected_versions: "Solr 8.11.4", cve_ids: null, hackerone_id: null
+  },
+  // === Cocoon Additional ===
+  {
+    id: "f012", title: "Cocoon WebServiceProxyGenerator Parameter Injection",
+    severity: "MEDIUM", project: "Cocoon", category: "code_review", status: "confirmed",
+    description: "WebServiceProxyGenerator passes user-controlled parameters to web service calls without adequate sanitization.",
+    affected_files: "WebServiceProxyGenerator.java", exploitation: "Attacker manipulates HTTP request parameters that get forwarded to backend web services, potentially injecting additional parameters or modifying requests.",
+    remediation: "Validate and sanitize parameters before forwarding to web service calls.",
+    adversarial_verdict: "Confirmed.", fix_status: "Unpatched", affected_versions: "Apache Cocoon", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f013", title: "Cocoon CommandAction Remote Code Execution",
+    severity: "MEDIUM", project: "Cocoon", category: "code_review", status: "confirmed",
+    description: "CommandAction can execute system commands. Originally rated Critical but downgraded: scratchpad blocks direct exploitation, no arguments can be passed, and commands are admin-configured in sitemap.",
+    affected_files: "CommandAction.java", exploitation: "If sitemap configuration allows user-influenced command selection, arbitrary command execution is possible. Mitigated by scratchpad blocking and no argument passing.",
+    remediation: "Remove CommandAction or restrict to a hardcoded allowlist of commands.",
+    adversarial_verdict: "Downgraded Critical to Medium (scratchpad block, no arguments, admin-configured).",
+    fix_status: "Unpatched", affected_versions: "Apache Cocoon", cve_ids: null, hackerone_id: null
+  },
+  // === Spring Code Review ===
+  {
+    id: "f014", title: "Spring SerializationUtils Misuse Hazard",
+    severity: "MEDIUM", project: "Spring", category: "code_review", status: "confirmed",
+    description: "SerializationUtils.deserialize() is a public API that performs unrestricted Java deserialization. Applications using this method are vulnerable to RCE via gadget chains.",
+    affected_files: "SerializationUtils.java", exploitation: "Any application code that calls SerializationUtils.deserialize() with untrusted input enables RCE via gadget chains.",
+    remediation: "Deprecate SerializationUtils.deserialize() or add ObjectInputFilter support.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 misuse hazard, not directly exploitable in the framework itself.",
+    fix_status: "Unpatched", affected_versions: "Spring Framework 4.3.34", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f015", title: "Spring SSRF via RequestHeaderToRequestUri",
+    severity: "MEDIUM", project: "Spring", category: "code_review", status: "confirmed",
+    description: "RequestHeaderToRequestUri gateway filter forwards a request header value as the target URI, enabling SSRF in uncommon deployment patterns.",
+    affected_files: "RequestHeaderToRequestUri filter", exploitation: "Attacker sets the configured header to an internal URL. The gateway forwards the request to the attacker-specified destination.",
+    remediation: "Add URL validation and restrict allowed destinations.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 uncommon deployment pattern.",
+    fix_status: "Unpatched", affected_versions: "Spring Cloud Gateway", cve_ids: null, hackerone_id: null
+  },
+  // === Commons FileUpload Code Review ===
+  {
+    id: "f016", title: "Commons FileUpload Filename NUL Bypass",
+    severity: "MEDIUM", project: "Commons FileUpload", category: "code_review", status: "confirmed",
+    description: "Filename processing does not strip NUL bytes, potentially allowing file extension bypass on certain operating systems.",
+    affected_files: "FileUpload filename handling", exploitation: "Attacker uploads a file with NUL byte in filename (e.g., malicious.jsp\\x00.txt) which may bypass extension checks on some OS/filesystem combinations.",
+    remediation: "Strip NUL bytes from uploaded filenames.",
+    adversarial_verdict: "Confirmed (Medium).", fix_status: "Unpatched", affected_versions: "Commons FileUpload", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f017", title: "Commons FileUpload Integer Truncation in get()",
+    severity: "MEDIUM", project: "Commons FileUpload", category: "code_review", status: "confirmed",
+    description: "The get() method truncates file size from long to int, potentially causing incorrect behavior for files larger than 2GB.",
+    affected_files: "DiskFileItem.java \u2014 get()", exploitation: "A file larger than 2GB will have its size silently truncated, potentially leading to incomplete reads or buffer issues.",
+    remediation: "Fix the long-to-int truncation to handle large files correctly.",
+    adversarial_verdict: "Confirmed (Medium \u2014 robustness issue).", fix_status: "Unpatched", affected_versions: "Commons FileUpload", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f018", title: "Commons Lang SerializationUtils.deserialize() Misuse Hazard",
+    severity: "MEDIUM", project: "Commons Lang", category: "code_review", status: "confirmed",
+    description: "SerializationUtils.deserialize() performs unrestricted Java deserialization. Public API that applications may misuse with untrusted data.",
+    affected_files: "SerializationUtils.java", exploitation: "Any code calling SerializationUtils.deserialize() with untrusted input is vulnerable to RCE via gadget chains.",
+    remediation: "Deprecate or add ObjectInputFilter support to SerializationUtils.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 misuse hazard, not directly exploitable as a library.",
+    fix_status: "Unpatched", affected_versions: "Commons Lang", cve_ids: null, hackerone_id: null
+  },
+  // === Tomcat Additional Code Review ===
+  {
+    id: "f019", title: "Tomcat Response Header CTL Bypass",
+    severity: "MEDIUM", project: "Tomcat", category: "code_review", status: "investigating",
+    description: "Response header validation may not properly filter all control characters, potentially allowing header injection in certain scenarios.",
+    affected_files: "Response header handling", exploitation: "Attacker-controlled values in response headers could inject control characters leading to HTTP response splitting.",
+    remediation: "Strengthen control character filtering in response header output. Needs PoC verification.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 needs PoC verification.", fix_status: "Unpatched", affected_versions: "Tomcat 9.0", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f020", title: "Tomcat WebDAV XXE",
+    severity: "MEDIUM", project: "Tomcat", category: "code_review", status: "confirmed",
+    description: "WebDAV servlet XML parsing does not fully disable external entities. WebDAV is not enabled by default.",
+    affected_files: "WebDAV servlet XML parsing", exploitation: "If WebDAV is enabled, attacker sends PROPFIND/PROPPATCH requests with XML containing external entity references.",
+    remediation: "Disable external entity processing in WebDAV XML parsing.",
+    adversarial_verdict: "Confirmed but WebDAV not enabled by default.", fix_status: "Unpatched", affected_versions: "Tomcat 9.0", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f021", title: "Tomcat Session Persistence Deserialization",
+    severity: "MEDIUM", project: "Tomcat", category: "code_review", status: "confirmed",
+    description: "Session persistence/replication uses Java deserialization with opt-in filtering. Default configuration does not restrict deserializable classes.",
+    affected_files: "Session persistence manager", exploitation: "If session persistence is enabled and attacker can influence session data, unrestricted deserialization enables gadget chain attacks.",
+    remediation: "Enable and enforce ObjectInputFilter for session deserialization by default.",
+    adversarial_verdict: "Confirmed (Medium) \u2014 opt-in filtering.", fix_status: "Unpatched", affected_versions: "Tomcat 9.0", cve_ids: null, hackerone_id: null
+  },
+
+  // === HACKERONE REPORTS ===
+  {
+    id: "h001", title: "Solr INVOKE Unauthenticated Class Loading",
+    severity: "HIGH", project: "Solr", category: "hackerone", status: "investigating",
+    description: "Undocumented /solr/admin/cores?action=INVOKE allows unauthenticated Class.forName(cname, true, classLoader). System property disclosure via ImplicitSnitch exposes SSL passwords, ZK connection strings, Kerberos keytab paths. No auth required.",
+    affected_files: "SolrCore admin handler \u2014 INVOKE action",
+    exploitation: "Unauthenticated attacker sends INVOKE action to /solr/admin/cores. System properties are disclosed including SSL passwords and ZK connection strings. RCE via static initializer is theoretical.",
+    remediation: "Remove INVOKE action handler. INVOKE action was removed in Solr 9.x.",
+    adversarial_verdict: "Confirmed. System property disclosure is the real impact.",
+    fix_status: "Open \u2014 Waiting on Apache", affected_versions: "Solr 8.11.4", cve_ids: null, hackerone_id: "3577740"
+  },
+  {
+    id: "h002", title: "Lucene Spatial3D Unsafe Deserialization",
+    severity: "HIGH", project: "Lucene", category: "hackerone", status: "investigating",
+    description: "SerializableObject.readClass() calls Class.forName(className) with attacker-controlled class name. Extension path bypasses whitelist. Gadget chain RCE possible. Incomplete remediation of CVE-2024-45772.",
+    affected_files: "Spatial3D module \u2014 SerializableObject.readClass()",
+    exploitation: "Attacker controls a binary Spatial3D stream. Class.forName() loads attacker-specified class, enabling RCE with commons-collections, Spring, or Groovy on classpath.",
+    remediation: "Audit NES patch for CVE-2024-45772 against ALL class-loading vectors.",
+    adversarial_verdict: "Code vulnerability confirmed. Attack scenario unrealistic for most deployments.",
+    fix_status: "Open \u2014 Waiting on Apache", affected_versions: "Lucene 8.11.4", cve_ids: "CVE-2024-45772", hackerone_id: "3586581"
+  },
+  {
+    id: "h003", title: "Struts ExceptionHandler XSS with Tiles",
+    severity: "MEDIUM", project: "Struts", category: "hackerone", status: "investigating",
+    description: "ExceptionHandler.handleCommittedResponse() writes raw ex.toString() to response when using Tiles. Unique code path not covered by existing CVEs.",
+    affected_files: "ExceptionHandler.java \u2014 handleCommittedResponse()",
+    exploitation: "Exception during Tiles rendering with committed response causes raw exception output including attacker-controlled input to be written to the response.",
+    remediation: "HTML-encode exception output in handleCommittedResponse().",
+    adversarial_verdict: "Confirmed genuine. Mitigating factors (CSP, HttpOnly cookies) do not eliminate the issue.",
+    fix_status: "Open \u2014 Waiting on Apache", affected_versions: "Struts 1.3.10", cve_ids: null, hackerone_id: "3585739"
+  },
+  {
+    id: "h004", title: "Struts html:option XSS (filter=false default)",
+    severity: "MEDIUM", project: "Struts", category: "hackerone", status: "investigating",
+    description: "html:option tag defaults filter=false, body text is never HTML-escaped. Docker PoC provided.",
+    affected_files: "html:option tag library",
+    exploitation: "When html:option is used without explicit filter=true, user-supplied values in option body text are rendered without HTML encoding.",
+    remediation: "Triage recommended. Docker PoC available. Apache STR-3191 stance applies.",
+    adversarial_verdict: "Needs triage. Docker PoC available.",
+    fix_status: "New \u2014 Unreviewed", affected_versions: "Struts 1.3.10", cve_ids: null, hackerone_id: "3640558"
+  },
+  {
+    id: "h005", title: "Struts XXE via Unsafe XML Parsing",
+    severity: "HIGH", project: "Struts", category: "hackerone", status: "investigating",
+    description: "XXE via unsafe XML parsing in Struts 1.3.10. Distinct vector from previously closed report 3621111 unclear.",
+    affected_files: "Struts XML parsing",
+    exploitation: "If this is a distinct XXE vector from the closed report, it would enable file disclosure and SSRF via XML external entities.",
+    remediation: "Needs triage. Request detailed PoC from reporter to confirm distinctness from closed 3621111.",
+    adversarial_verdict: "Likely false positive / duplicate. Digester only parses config files at startup, not attacker-controlled XML.",
+    fix_status: "New \u2014 Unreviewed", affected_versions: "Struts 1.3.10", cve_ids: null, hackerone_id: "3648283"
+  },
+  {
+    id: "h006", title: "Struts UploadAction File Write RCE (Example App)",
+    severity: "HIGH", project: "Struts", category: "hackerone", status: "investigating",
+    description: "UploadAction in example app writes files with zero path validation. JSP webshell possible. Scope decision required: does NES ship/maintain example apps?",
+    affected_files: "Example app \u2014 UploadAction",
+    exploitation: "Attacker uploads a JSP file via UploadAction in the example application. Zero path validation allows writing to arbitrary locations within the WAR, enabling webshell deployment.",
+    remediation: "Scope decision required. If in scope: add path validation and restrict file types.",
+    adversarial_verdict: "Real file-write vuln in example app. NES precedent with CVE-2012-1007 patch weakens exclusion argument.",
+    fix_status: "New \u2014 Unreviewed", affected_versions: "Struts 1.3.10", cve_ids: null, hackerone_id: "3646175"
+  },
+  {
+    id: "h007", title: "Struts html:errors XSS (Duplicate Pattern)",
+    severity: "MEDIUM", project: "Struts", category: "hackerone", status: "investigating",
+    description: "html:errors tag writes message args raw with no escape option. May overlap with closed report 3585735.",
+    affected_files: "ErrorsTag / MessagesTag",
+    exploitation: "User-supplied values in action messages are rendered without HTML encoding when using html:errors tag.",
+    remediation: "Close as duplicate of 3585735. Same tag library XSS pattern, same Apache STR-3191 stance.",
+    adversarial_verdict: "Close as duplicate of 3585735.",
+    fix_status: "New \u2014 Unreviewed", affected_versions: "Struts 1.3.10", cve_ids: null, hackerone_id: "3652615"
+  },
+  {
+    id: "h008", title: "Solr QueryParser StackOverflow (Robustness)",
+    severity: "LOW", project: "Solr", category: "hackerone", status: "wont_fix",
+    description: "QueryParser StackOverflowError on ~4000 nested parentheses (~8KB). Resolves in <20ms, no lasting impact. Robustness bug, not a security vulnerability.",
+    affected_files: "QueryParser", exploitation: "Send query with ~4000 nested parentheses to trigger StackOverflowError. No lasting impact.",
+    remediation: "Closed as informative. Robustness bug, not a CVE.",
+    adversarial_verdict: "Not a vulnerability.", fix_status: "Closed (informative)", affected_versions: "Solr 8.11.4", cve_ids: null, hackerone_id: "3598838"
+  },
+
+  // === CVE CATALOG HIGHLIGHTS (Critical + Select High) ===
+  {
+    id: "c001", title: "CVE-2017-5638: Struts Content-Type RCE",
+    severity: "CRITICAL", project: "Struts", category: "cve_catalog", status: "released",
+    description: "Remote Code Execution via crafted Content-Type header in Apache Struts. One of the most widely exploited vulnerabilities in history (Equifax breach).",
+    affected_files: "Jakarta Multipart parser", exploitation: "Attacker sends HTTP request with crafted Content-Type header containing OGNL expressions. The multipart parser evaluates the expression, leading to RCE.",
+    remediation: "Patched in Struts 2.3.32 / 2.5.10.1. NES patch available.",
+    adversarial_verdict: null, fix_status: "Patched (NES)", affected_versions: ">=2.3.5 <2.3.31, >=2.5 <2.5.10", cve_ids: "CVE-2017-5638", hackerone_id: null
+  },
+  {
+    id: "c002", title: "CVE-2018-11776: Struts Namespace RCE",
+    severity: "CRITICAL", project: "Struts", category: "cve_catalog", status: "released",
+    description: "Remote Code Execution when namespace value is not set for a result or when wildcard namespace is used. OGNL expression evaluation in alwaysSelectFullNamespace.",
+    affected_files: "Namespace handling / result mapping", exploitation: "Attacker manipulates the namespace in the URL to inject OGNL expressions that get evaluated server-side.",
+    remediation: "Patched by NES (2022-08-18).",
+    adversarial_verdict: null, fix_status: "Patched (NES, 2022-08-18)", affected_versions: ">=2.3.0 <2.3.35, >=2.5.0 <2.5.17", cve_ids: "CVE-2018-11776", hackerone_id: null
+  },
+  {
+    id: "c003", title: "CVE-2024-53677: Struts File Upload RCE",
+    severity: "CRITICAL", project: "Struts", category: "cve_catalog", status: "released",
+    description: "Remote Code Execution via file upload mechanism in Apache Struts.",
+    affected_files: "File upload handler", exploitation: "Attacker exploits file upload handling to achieve remote code execution.",
+    remediation: "Patched by NES (2024-12-17).",
+    adversarial_verdict: null, fix_status: "Patched (NES, 2024-12-17)", affected_versions: ">=2.0.0 <=2.3.37, >=2.5.0 <=2.5.33, >=6.0.0 <=6.3.0.2", cve_ids: "CVE-2024-53677", hackerone_id: null
+  },
+  {
+    id: "c004", title: "CVE-2022-22965: Spring4Shell RCE",
+    severity: "CRITICAL", project: "Spring", category: "cve_catalog", status: "released",
+    description: "Remote Code Execution via data binding to Class object in Spring Framework (Spring4Shell). Allows writing JSP webshells on Tomcat.",
+    affected_files: "DataBinder / class parameter binding", exploitation: "Attacker manipulates class loader parameters via data binding to modify Tomcat logging configuration and write a JSP webshell.",
+    remediation: "Patched by NES.",
+    adversarial_verdict: null, fix_status: "Patched (NES)", affected_versions: "<5.2.20, >=5.3.0 <5.3.18", cve_ids: "CVE-2022-22965", hackerone_id: null
+  },
+  {
+    id: "c005", title: "CVE-2016-1000027: Spring HTTP Invoker Deserialization",
+    severity: "CRITICAL", project: "Spring", category: "cve_catalog", status: "investigating",
+    description: "HttpInvokerServiceExporter deserializes arbitrary HTTP request bodies. Code review found no evidence of filtering in the NES-patched code \u2014 VERIFY PATCH.",
+    affected_files: "HttpInvokerServiceExporter.java", exploitation: "Attacker sends crafted serialized Java object to endpoint using HttpInvokerServiceExporter for RCE.",
+    remediation: "Verify NES patch effectiveness. The code review found the vulnerability still present.",
+    adversarial_verdict: "NES catalog says 'Patched' but code review found no filtering. VERIFY.", fix_status: "Patched (VERIFY)", affected_versions: "<6.0.0", cve_ids: "CVE-2016-1000027", hackerone_id: null
+  },
+  {
+    id: "c006", title: "CVE-2025-41243: Spring Cloud Gateway RCE",
+    severity: "CRITICAL", project: "Spring", category: "cve_catalog", status: "released",
+    description: "Expression Language Property Modification leading to Remote Code Execution in Spring Cloud Gateway WebFlux.",
+    affected_files: "ShortcutConfigurable SpEL handling", exploitation: "Attacker exploits SpEL injection via Gateway route configuration to achieve RCE.",
+    remediation: "Patched by NES.",
+    adversarial_verdict: "@bean.method() blocked by null MethodResolver in patched version.", fix_status: "Patched (NES)", affected_versions: ">=3.1.0, >=4.0.0, >=4.2.0 <4.2.5", cve_ids: "CVE-2025-41243", hackerone_id: null
+  },
+  {
+    id: "c007", title: "CVE-2024-38821: Spring Security WebFlux Auth Bypass",
+    severity: "CRITICAL", project: "Spring", category: "cve_catalog", status: "investigating",
+    description: "Authorization bypass for static resources in Spring Security WebFlux applications. Phase 3 review missed examining this \u2014 VERIFY NES PATCH.",
+    affected_files: "Spring Security WebFlux authorization", exploitation: "Attacker bypasses authorization checks on static resources served by WebFlux applications.",
+    remediation: "Verify NES patch. This was flagged as missed by the Phase 3 review.",
+    adversarial_verdict: "Phase 3 review missed examining this Critical CVE. Verify as properly patched.", fix_status: "Patched (VERIFY)", affected_versions: "<5.7.13, >=5.8.0 <5.8.15, >=6.0.0 <6.0.13", cve_ids: "CVE-2024-38821", hackerone_id: null
+  },
+  {
+    id: "c008", title: "CVE-2024-52316: Tomcat Authentication Bypass",
+    severity: "CRITICAL", project: "Tomcat", category: "cve_catalog", status: "investigating",
+    description: "Authentication bypass vulnerability in Apache Tomcat. Phase 3 review missed examining this \u2014 VERIFY NES PATCH.",
+    affected_files: "Tomcat authentication handling", exploitation: "Attacker bypasses authentication in affected Tomcat versions.",
+    remediation: "Verify NES patch. Flagged as missed by Phase 3 review.",
+    adversarial_verdict: "Phase 3 review missed examining this Critical CVE. Verify as properly patched.", fix_status: "Patched (VERIFY)", affected_versions: "<9.0.96, 10.1.0-M1 to <10.1.30", cve_ids: "CVE-2024-52316", hackerone_id: null
+  },
+  {
+    id: "c009", title: "CVE-2025-24813: Tomcat RCE via Partial PUT",
+    severity: "CRITICAL", project: "Tomcat", category: "cve_catalog", status: "investigating",
+    description: "Remote Code Execution / information disclosure via partial PUT requests in Apache Tomcat. Phase 3 review missed examining this \u2014 VERIFY NES PATCH.",
+    affected_files: "Partial PUT handling", exploitation: "Attacker uses partial PUT requests to achieve RCE or information disclosure.",
+    remediation: "Verify NES patch. Flagged as missed by Phase 3 review.",
+    adversarial_verdict: "Phase 3 review missed examining this Critical CVE. Verify as properly patched.", fix_status: "Patched (VERIFY)", affected_versions: "<9.0.99, 10.1.0-M1 to <10.1.35", cve_ids: "CVE-2025-24813", hackerone_id: null
+  },
+  {
+    id: "c010", title: "CVE-2022-35256: Node.js HTTP Header Parsing Flaw",
+    severity: "CRITICAL", project: "Node.js", category: "cve_catalog", status: "released",
+    description: "Critical HTTP header parsing flaw in Node.js llhttp parser.",
+    affected_files: "HTTP parser (llhttp)", exploitation: "Crafted HTTP headers exploit parsing flaws in llhttp.",
+    remediation: "Patched by NES.",
+    adversarial_verdict: null, fix_status: "Patched (NES)", affected_versions: ">=4.0.0 <14.20.1, >=16.0.0 <16.17.1, >=18.0.0 <18.9.1", cve_ids: "CVE-2022-35256", hackerone_id: null
+  },
+  {
+    id: "c011", title: "CVE-2022-37602: AngularJS grunt-karma Prototype Pollution",
+    severity: "CRITICAL", project: "AngularJS", category: "cve_catalog", status: "wont_fix",
+    description: "Prototype Pollution in grunt-karma. No upstream fix available (EOL project). NES provides patches for AngularJS customers.",
+    affected_files: "grunt-karma <=4.0.1", exploitation: "Attacker exploits prototype pollution to modify object prototypes.",
+    remediation: "No upstream fix (EOL). NES provides patched version.",
+    adversarial_verdict: null, fix_status: "Unpatched (EOL)", affected_versions: "grunt-karma <=4.0.1", cve_ids: "CVE-2022-37602", hackerone_id: null
+  },
+  // === Select HIGH CVEs ===
+  {
+    id: "c012", title: "CVE-2024-50379: Tomcat TOCTOU Race Condition",
+    severity: "HIGH", project: "Tomcat", category: "cve_catalog", status: "released",
+    description: "Time-of-check time-of-use race condition in Tomcat. Verify NES patch.",
+    affected_files: "File handling", exploitation: "Race condition between checking and using a file allows exploitation.", remediation: "Patched upstream.",
+    adversarial_verdict: "Phase 3 review missed examining this.", fix_status: "Patched (upstream)", affected_versions: "9.0.0.M1 to <9.0.98", cve_ids: "CVE-2024-50379", hackerone_id: null
+  },
+  {
+    id: "c013", title: "CVE-2024-56337: Tomcat TOCTOU Race Condition",
+    severity: "HIGH", project: "Tomcat", category: "cve_catalog", status: "released",
+    description: "Second TOCTOU race condition in Tomcat file handling. Verify NES patch.",
+    affected_files: "File handling", exploitation: "Race condition in file handling.", remediation: "Patched upstream.",
+    adversarial_verdict: "Phase 3 review missed examining this.", fix_status: "Patched (upstream)", affected_versions: "9.0.0.M1 to <9.0.98", cve_ids: "CVE-2024-56337", hackerone_id: null
+  },
+  {
+    id: "c014", title: "CVE-2025-22235: Spring Boot EndpointRequest Matcher Bypass",
+    severity: "HIGH", project: "Spring", category: "cve_catalog", status: "investigating",
+    description: "EndpointRequest matcher bypass in Spring Boot. Phase 3 review missed examining this \u2014 VERIFY NES PATCH.",
+    affected_files: "EndpointRequest matcher", exploitation: "Attacker bypasses endpoint request matching to access restricted actuator endpoints.",
+    remediation: "Verify NES patch.", adversarial_verdict: "Phase 3 review missed examining this.",
+    fix_status: "Patched (VERIFY)", affected_versions: "<3.3.11, >=3.4.0 <3.4.5", cve_ids: "CVE-2025-22235", hackerone_id: null
+  },
+  // === Unpatched AngularJS highlights ===
+  {
+    id: "c015", title: "AngularJS: 13 Unpatched CVEs (EOL)",
+    severity: "HIGH", project: "AngularJS", category: "cve_catalog", status: "investigating",
+    description: "13 of 15 AngularJS CVEs are UNPATCHED because the project reached EOL at v1.8.3. Includes ReDoS, XSS, prototype pollution, and SVG sanitization bypasses. NES provides fixes for these. Highest risk area for NES customers using AngularJS.",
+    affected_files: "angular core, angular-sanitize, angular-translate, grunt-karma",
+    exploitation: "Multiple attack vectors: ReDoS causing denial of service, XSS via various sanitization bypasses, prototype pollution. All unpatched upstream.",
+    remediation: "Publish NES advisories for AngularJS 1.8.3. Communicate to customers even if no upstream fix exists.",
+    adversarial_verdict: null, fix_status: "Unpatched (EOL)", affected_versions: "AngularJS <=1.8.3",
+    cve_ids: "CVE-2022-25844, CVE-2022-25869, CVE-2022-37602, CVE-2023-26116, CVE-2023-26117, CVE-2023-26118, CVE-2024-21490, CVE-2024-33665, CVE-2024-8372, CVE-2024-8373, CVE-2025-0716, CVE-2025-2336, CVE-2025-4690",
+    hackerone_id: null
+  },
+  {
+    id: "c016", title: "CVE-2024-6783: Vue 2.x Client-Side XSS (EOL)",
+    severity: "MEDIUM", project: "Vue.js", category: "cve_catalog", status: "investigating",
+    description: "Client-side XSS in vue-template-compiler. No fix available for Vue 2.x (EOL). Only unpatched Vue CVE.",
+    affected_files: "vue-template-compiler", exploitation: "XSS via crafted template expressions.",
+    remediation: "No upstream fix. Upgrade to Vue 3.x or apply NES patch.",
+    adversarial_verdict: null, fix_status: "Unpatched (EOL)", affected_versions: "Vue 2.x", cve_ids: "CVE-2024-6783", hackerone_id: null
+  },
+  // === Struts Low findings ===
+  {
+    id: "f022", title: "Struts I18n Cookie Missing Security Flags",
+    severity: "LOW", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "I18n interceptor sets a cookie without HttpOnly and Secure flags.",
+    affected_files: "I18nInterceptor.java", exploitation: "Cookie can be accessed via JavaScript and transmitted over HTTP.",
+    remediation: "Add HttpOnly and Secure flags to the I18n cookie.",
+    adversarial_verdict: "Confirmed (Low).", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f023", title: "Struts ProviderAllowlist Race Condition",
+    severity: "LOW", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "Race condition in ProviderAllowlist could allow brief windows where allowlist is inconsistent.",
+    affected_files: "ProviderAllowlist.java", exploitation: "In multi-threaded environments, brief inconsistency windows in allowlist checking.",
+    remediation: "Use thread-safe collection operations.",
+    adversarial_verdict: "Confirmed (Low).", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  },
+  {
+    id: "f024", title: "Struts SecurityMemberAccess Config Swap Race",
+    severity: "LOW", project: "Struts 6.8", category: "code_review", status: "confirmed",
+    description: "Race condition during SecurityMemberAccess configuration swap could briefly allow access to restricted members.",
+    affected_files: "SecurityMemberAccess.java", exploitation: "During configuration reload, brief window where member access restrictions may be inconsistent.",
+    remediation: "Use atomic configuration swap.",
+    adversarial_verdict: "Confirmed (Low).", fix_status: "Unpatched", affected_versions: "Struts 6.8", cve_ids: null, hackerone_id: null
+  }
+];
+
+// ============================================================
+// LOCAL STATE
+// ============================================================
+let comments = {};  // findingId -> [{author, text, created_at}]
+let currentSort = 'severity';
+let currentFinding = null;
+let currentTab = 'overview';
+
+// Datasource config (for when platform bug is fixed)
+const DS_CONFIG = {
+  findingsId: 'fe21a607-e177-45ef-8243-eb8f06430ffd',
+  commentsId: '78c1e932-5f77-4838-8089-e6a9e923c20c',
+  statusLogId: 'fe987579-c83f-44a5-8370-35fee16033ad'
+};
+
+// ============================================================
+// SEVERITY SORT ORDER
+// ============================================================
+const SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  populateProjectFilter();
+  updateStats();
+  renderFindings();
+  // Wire up filters
+  document.getElementById('searchInput').addEventListener('input', renderFindings);
+  document.getElementById('severityFilter').addEventListener('change', renderFindings);
+  document.getElementById('projectFilter').addEventListener('change', renderFindings);
+  document.getElementById('categoryFilter').addEventListener('change', renderFindings);
+  document.getElementById('statusFilter').addEventListener('change', renderFindings);
+  // Close detail on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDetail();
+  });
+}
+
+function populateProjectFilter() {
+  const projects = [...new Set(FINDINGS.map(f => f.project))].sort();
+  const sel = document.getElementById('projectFilter');
+  projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    sel.appendChild(opt);
+  });
+}
+
+function getFilteredFindings() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const severity = document.getElementById('severityFilter').value;
+  const project = document.getElementById('projectFilter').value;
+  const category = document.getElementById('categoryFilter').value;
+  const status = document.getElementById('statusFilter').value;
+
+  let filtered = FINDINGS.filter(f => {
+    if (severity && f.severity !== severity) return false;
+    if (project && f.project !== project) return false;
+    if (category && f.category !== category) return false;
+    if (status && f.status !== status) return false;
+    if (search) {
+      const haystack = (f.title + ' ' + f.description + ' ' + f.project + ' ' + (f.cve_ids || '') + ' ' + (f.hackerone_id || '')).toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  if (currentSort === 'severity') {
+    filtered.sort((a, b) => (SEV_ORDER[a.severity] || 9) - (SEV_ORDER[b.severity] || 9));
+  } else if (currentSort === 'project') {
+    filtered.sort((a, b) => a.project.localeCompare(b.project));
+  }
+  return filtered;
+}
+
+function updateStats() {
+  const all = FINDINGS;
+  document.getElementById('totalCount').textContent = all.length;
+  document.getElementById('criticalCount').textContent = all.filter(f => f.severity === 'CRITICAL').length;
+  document.getElementById('highCount').textContent = all.filter(f => f.severity === 'HIGH').length;
+  document.getElementById('mediumCount').textContent = all.filter(f => f.severity === 'MEDIUM').length;
+  document.getElementById('lowCount').textContent = all.filter(f => f.severity === 'LOW').length;
+  document.getElementById('unpatchedCount').textContent = all.filter(f => f.fix_status && f.fix_status.toLowerCase().includes('unpatched')).length;
+  document.getElementById('patchedCount').textContent = all.filter(f => f.fix_status && f.fix_status.toLowerCase().includes('patched') && !f.fix_status.toLowerCase().includes('unpatched')).length;
+}
+
+// ============================================================
+// RENDER FINDINGS LIST
+// ============================================================
+function renderFindings() {
+  const findings = getFilteredFindings();
+  const container = document.getElementById('findingsList');
+  const info = document.getElementById('resultsInfo');
+  info.textContent = `Showing ${findings.length} of ${FINDINGS.length} findings`;
+
+  if (findings.length === 0) {
+    container.innerHTML = '<div class="empty-state"><h3>No findings match your filters</h3><p>Try adjusting your search or filters</p></div>';
+    return;
+  }
+
+  container.innerHTML = findings.map(f => `
+    <div class="finding-card" onclick="openDetail('${f.id}')">
+      <div class="finding-card-header">
+        <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+        <span class="finding-title">${esc(f.title)}</span>
+      </div>
+      <div class="finding-desc-preview">${esc(f.description)}</div>
+      <div class="finding-meta">
+        <span class="meta-tag"><span class="cat-icon cat-${f.category}"></span>${formatCategory(f.category)}</span>
+        <span class="meta-tag">${esc(f.project)}</span>
+        <span class="status-tag status-${f.status}">${formatStatus(f.status)}</span>
+        ${f.hackerone_id ? `<span class="meta-tag category-hackerone">H1#${f.hackerone_id}</span>` : ''}
+        ${f.cve_ids ? `<span class="meta-tag category-cve_catalog">${esc(f.cve_ids.split(',')[0])}${f.cve_ids.includes(',') ? '...' : ''}</span>` : ''}
+        ${f.fix_status ? `<span class="meta-tag">${esc(f.fix_status)}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function setSort(type) {
+  currentSort = type;
+  document.getElementById('sortSeverity').classList.toggle('active', type === 'severity');
+  document.getElementById('sortProject').classList.toggle('active', type === 'project');
+  renderFindings();
+}
+
+// ============================================================
+// DETAIL VIEW
+// ============================================================
+function openDetail(id) {
+  currentFinding = FINDINGS.find(f => f.id === id);
+  if (!currentFinding) return;
+  currentTab = 'overview';
+  document.getElementById('detailTitle').textContent = currentFinding.title;
+  renderDetailContent();
+  document.getElementById('detailOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDetail(e) {
+  if (e && e.target !== document.getElementById('detailOverlay') && !e.target.classList.contains('detail-close')) return;
+  document.getElementById('detailOverlay').classList.remove('active');
+  document.body.style.overflow = '';
+  currentFinding = null;
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  renderDetailContent();
+}
+
+function renderDetailContent() {
+  const f = currentFinding;
+  if (!f) return;
+  const container = document.getElementById('detailContent');
+
+  let html = '';
+
+  // Overview tab
+  html += `<div class="tab-content ${currentTab === 'overview' ? 'active' : ''}">`;
+  html += `<div class="detail-section"><div class="detail-section-header">Classification</div><div class="detail-tags">
+    <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+    <span class="meta-tag"><span class="cat-icon cat-${f.category}"></span>${formatCategory(f.category)}</span>
+    <span class="meta-tag">${esc(f.project)}</span>
+    <span class="status-tag status-${f.status}">${formatStatus(f.status)}</span>
+    ${f.hackerone_id ? `<span class="meta-tag category-hackerone">HackerOne #${f.hackerone_id}</span>` : ''}
+    ${f.cve_ids ? `<span class="meta-tag category-cve_catalog">${esc(f.cve_ids)}</span>` : ''}
+    ${f.fix_status ? `<span class="meta-tag">${esc(f.fix_status)}</span>` : ''}
+    ${f.affected_versions ? `<span class="meta-tag">${esc(f.affected_versions)}</span>` : ''}
+  </div></div>`;
+
+  // Status update
+  html += `<div class="detail-section"><div class="detail-section-header">Update Status</div>
+    <div class="status-controls">
+      <select class="status-select" id="statusSelect">
+        ${['investigating','confirmed','in_progress','fixed','released','wont_fix','duplicate'].map(s =>
+          `<option value="${s}" ${f.status === s ? 'selected' : ''}>${formatStatus(s)}</option>`
+        ).join('')}
+      </select>
+      <button class="btn" onclick="updateStatus()">Update</button>
+    </div></div>`;
+
+  html += `<div class="detail-section"><div class="detail-section-header">Description</div>
+    <div class="detail-section-body">${esc(f.description)}</div></div>`;
+
+  if (f.adversarial_verdict) {
+    html += `<div class="detail-section"><div class="detail-section-header">Adversarial Review Verdict</div>
+      <div class="detail-section-body">${esc(f.adversarial_verdict)}</div></div>`;
+  }
+  html += '</div>';
+
+  // Technical tab
+  html += `<div class="tab-content ${currentTab === 'technical' ? 'active' : ''}">`;
+  if (f.affected_files) {
+    html += `<div class="detail-section"><div class="detail-section-header">Affected Files</div>
+      <div class="detail-section-body" style="font-family:monospace;font-size:12px;">${esc(f.affected_files)}</div></div>`;
+  }
+  if (f.exploitation) {
+    html += `<div class="detail-section"><div class="detail-section-header">Exploitation Scenario</div>
+      <div class="detail-section-body">${esc(f.exploitation)}</div></div>`;
+  }
+  if (f.remediation) {
+    html += `<div class="detail-section"><div class="detail-section-header">Remediation</div>
+      <div class="detail-section-body">${esc(f.remediation)}</div></div>`;
+  }
+  html += '</div>';
+
+  // Discussion tab
+  html += `<div class="tab-content ${currentTab === 'discussion' ? 'active' : ''}">`;
+  const findingComments = comments[f.id] || [];
+  html += `<div class="detail-section"><div class="detail-section-header">Comments (${findingComments.length})</div>`;
+  if (findingComments.length > 0) {
+    html += '<div class="comments-list">';
+    findingComments.forEach(c => {
+      html += `<div class="comment-item">
+        <div class="comment-header">
+          <span class="comment-author">${esc(c.author)}</span>
+          <span class="comment-time">${formatTime(c.created_at)}</span>
+        </div>
+        <div class="comment-text">${esc(c.text)}</div>
+      </div>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<div class="comments-list"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No comments yet</div></div>';
+  }
+  html += `<div class="comment-form">
+    <textarea class="comment-input" id="commentInput" placeholder="Add a comment..." rows="2"></textarea>
+    <button class="btn" onclick="addComment()" style="align-self:flex-end;">Post</button>
+  </div></div>`;
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function updateStatus() {
+  if (!currentFinding) return;
+  const newStatus = document.getElementById('statusSelect').value;
+  const oldStatus = currentFinding.status;
+  if (newStatus === oldStatus) return;
+  currentFinding.status = newStatus;
+  updateStats();
+  renderFindings();
+  renderDetailContent();
+}
+
+function addComment() {
+  if (!currentFinding) return;
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!comments[currentFinding.id]) comments[currentFinding.id] = [];
+  comments[currentFinding.id].push({
+    author: 'Ryan',
+    text: text,
+    created_at: new Date().toISOString()
+  });
+  input.value = '';
+  renderDetailContent();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function esc(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatCategory(cat) {
+  switch(cat) {
+    case 'hackerone': return 'HackerOne';
+    case 'code_review': return 'Code Review';
+    case 'cve_catalog': return 'CVE Catalog';
+    default: return cat;
+  }
+}
+
+function formatStatus(s) {
+  switch(s) {
+    case 'investigating': return 'Investigating';
+    case 'confirmed': return 'Confirmed';
+    case 'in_progress': return 'In Progress';
+    case 'fixed': return 'Fixed';
+    case 'released': return 'Released';
+    case 'wont_fix': return "Won't Fix";
+    case 'duplicate': return 'Duplicate';
+    default: return s;
+  }
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Start
+init();
+</script>
+</body>
+</html>
