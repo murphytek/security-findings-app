@@ -695,6 +695,17 @@ body {
 .cat-code_review { background: #79c0ff; }
 .cat-cve_catalog { background: #7ee787; }
 .cat-investigation { background: #3fb950; }
+
+/* PoC code blocks */
+pre code {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* Project dashboard grid */
+@media (max-width: 600px) {
+  .main-tabs-inner { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .filters-inner { overflow-x: auto; }
+}
 </style>
 </head>
 <body>
@@ -744,6 +755,9 @@ body {
 <!-- Main view tabs -->
 <div class="main-tabs">
   <div class="main-tabs-inner">
+    <div class="main-tab" data-view="projects" onclick="switchMainTab('projects')">
+      Projects <span class="tab-count" id="projectsCount">0</span>
+    </div>
     <div class="main-tab active" data-view="our_findings" onclick="switchMainTab('our_findings')">
       Our Findings <span class="tab-count" id="ourFindingsCount">0</span>
     </div>
@@ -752,6 +766,12 @@ body {
     </div>
     <div class="main-tab" data-view="known_cves" onclick="switchMainTab('known_cves')">
       Known CVEs <span class="tab-count" id="knownCvesCount">0</span>
+    </div>
+    <div class="main-tab" data-view="cve_catalog" onclick="switchMainTab('cve_catalog')">
+      CVE Catalog <span class="tab-count" id="cveCatalogCount">0</span>
+    </div>
+    <div class="main-tab" data-view="hackerone" onclick="switchMainTab('hackerone')">
+      HackerOne <span class="tab-count" id="hackeroneCount">0</span>
     </div>
   </div>
 </div>
@@ -788,6 +808,49 @@ body {
         <option value="duplicate">Duplicate</option>
       </select>
     </div>
+    <div class="filter-group">
+      <label>Type</label>
+      <select class="filter-select" id="findingTypeFilter">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Priority</label>
+      <select class="filter-select" id="priorityFilter">
+        <option value="">All</option>
+        <option value="P0-urgent">P0 Urgent</option>
+        <option value="P1-high">P1 High</option>
+        <option value="P2-medium">P2 Medium</option>
+        <option value="P3-low">P3 Low</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Remediation</label>
+      <select class="filter-select" id="remediationFilter" style="min-width:120px;">
+        <option value="">All</option>
+        <option value="open">Open</option>
+        <option value="in-progress">In Progress</option>
+        <option value="fixed">Fixed</option>
+        <option value="wont-fix">Won't Fix</option>
+        <option value="accepted-risk">Accepted Risk</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>PoC</label>
+      <select class="filter-select" id="pocFilter" style="min-width:80px;">
+        <option value="">All</option>
+        <option value="true">Has PoC</option>
+        <option value="false">No PoC</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Reviewed</label>
+      <select class="filter-select" id="adversarialFilter" style="min-width:80px;">
+        <option value="">All</option>
+        <option value="true">Reviewed</option>
+        <option value="false">Not Reviewed</option>
+      </select>
+    </div>
     <button class="sort-btn active" id="sortSeverity" onclick="setSort('severity')">Sort: Severity</button>
     <button class="sort-btn" id="sortProject" onclick="setSort('project')">Sort: Project</button>
   </div>
@@ -809,6 +872,7 @@ body {
       <div class="detail-tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
       <div class="detail-tab" data-tab="technical" onclick="switchTab('technical')">Technical</div>
       <div class="detail-tab" data-tab="discussion" onclick="switchTab('discussion')">Discussion</div>
+      <div class="detail-tab" data-tab="history" onclick="switchTab('history')">Audit Trail</div>
     </div>
     <div id="detailContent"></div>
   </div>
@@ -2084,6 +2148,9 @@ let OUR_FINDINGS = [];
 let EXTERNAL_REPORTS = [];
 let CVE_CATALOG = [];
 let ALL_FINDINGS = [];
+let PROJECTS = [];
+let DB_CVES = [];
+let DB_HACKERONE = [];
 
 // ============================================================
 // LOCAL STATE
@@ -2095,6 +2162,7 @@ let currentTab = 'overview';
 let currentMainView = 'our_findings';
 
 const SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+const PRIORITY_ORDER = { 'P0-urgent': 0, 'P1-high': 1, 'P2-medium': 2, 'P3-low': 3 };
 
 // ============================================================
 // DB -> FINDING MAPPER
@@ -2117,7 +2185,29 @@ function dbRowToFinding(row) {
     cve_ids: row.cve_ids || null,
     hackerone_id: row.hackerone_id || null,
     source_badge: row.source_badge || '',
-    reproduction_path: row.reproduction_path || ''
+    reproduction_path: row.reproduction_path || '',
+    // New columns
+    cvss_score: row.cvss_score || null,
+    cvss_vector: row.cvss_vector || '',
+    finding_type: row.finding_type || '',
+    nes_branch: row.nes_branch || '',
+    nes_version: row.nes_version || '',
+    affected_component: row.affected_component || '',
+    attack_vector: row.attack_vector || '',
+    has_poc: row.has_poc || false,
+    poc_path: row.poc_path || '',
+    reviewed_by: row.reviewed_by || '',
+    adversarial_reviewed: row.adversarial_reviewed || false,
+    original_severity: row.original_severity || '',
+    related_cves: row.related_cves || null,
+    related_findings: row.related_findings || null,
+    tags: row.tags || null,
+    priority: row.priority || '',
+    assigned_to: row.assigned_to || '',
+    remediation_status: row.remediation_status || '',
+    remediation_pr: row.remediation_pr || '',
+    discovered_at: row.discovered_at || null,
+    verified_at: row.verified_at || null
   };
 }
 
@@ -2193,12 +2283,83 @@ async function loadFromDatabase() {
   }
 }
 
+async function loadCves() {
+  try {
+    const rows = await DB.query('SELECT * FROM security_cves ORDER BY severity ASC, cve_id ASC');
+    return rows || [];
+  } catch (e) { console.warn('Failed to load CVEs:', e); return []; }
+}
+
+async function loadHackeroneReports() {
+  try {
+    const rows = await DB.query('SELECT * FROM security_hackerone_reports ORDER BY submitted_at DESC');
+    return rows || [];
+  } catch (e) { console.warn('Failed to load H1 reports:', e); return []; }
+}
+
+async function loadPocs(findingId) {
+  try {
+    const rows = await DB.query(`SELECT * FROM security_pocs WHERE finding_id = '${DB.escape(findingId)}' ORDER BY created_at ASC`);
+    return rows || [];
+  } catch (e) { console.warn('Failed to load PoCs:', e); return []; }
+}
+
+async function loadComments(findingId) {
+  try {
+    const rows = await DB.query(`SELECT * FROM finding_comments WHERE finding_id = '${DB.escape(findingId)}' ORDER BY created_at ASC`);
+    return rows || [];
+  } catch (e) { console.warn('Failed to load comments:', e); return []; }
+}
+
+async function saveComment(findingId, author, text) {
+  try {
+    await DB.mutate(`INSERT INTO finding_comments (id, finding_id, author, text) VALUES (gen_random_uuid(), '${DB.escape(findingId)}', '${DB.escape(author)}', '${DB.escape(text)}')`);
+  } catch (e) { console.warn('Failed to save comment:', e); }
+}
+
 // ============================================================
 // INIT
 // ============================================================
+async function loadProjects() {
+  try {
+    const rows = await DB.query('SELECT * FROM security_projects ORDER BY name ASC');
+    return rows || [];
+  } catch (e) {
+    console.warn('Failed to load projects:', e);
+    return [];
+  }
+}
+
+async function loadHistory(findingId) {
+  try {
+    const rows = await DB.query(`SELECT * FROM security_finding_history WHERE finding_id = '${DB.escape(findingId)}' ORDER BY created_at DESC LIMIT 50`);
+    return rows || [];
+  } catch (e) {
+    console.warn('Failed to load history:', e);
+    return [];
+  }
+}
+
+async function logChange(findingId, field, oldVal, newVal) {
+  try {
+    await DB.mutate(`INSERT INTO security_finding_history (finding_id, field_changed, old_value, new_value, changed_by) VALUES ('${DB.escape(findingId)}', '${DB.escape(field)}', '${DB.escape(oldVal || '')}', '${DB.escape(newVal || '')}', 'App User')`);
+  } catch (e) {
+    console.warn('Failed to log change:', e);
+  }
+}
+
 async function init() {
-  // Load findings from DB
-  const allFindings = await loadFromDatabase();
+  // Load all data from DB in parallel
+  const [allFindings, projects, cves, h1Reports] = await Promise.all([
+    loadFromDatabase(),
+    loadProjects(),
+    loadCves(),
+    loadHackeroneReports()
+  ]);
+
+  PROJECTS = projects;
+  DB_CVES = cves;
+  DB_HACKERONE = h1Reports;
 
   // Categorize into the three views
   OUR_FINDINGS = [];
@@ -2224,6 +2385,7 @@ async function init() {
   if (headerMeta) headerMeta.textContent = `April 2026 \u00b7 ${projectCount} Projects \u00b7 ${ALL_FINDINGS.length} Findings`;
 
   populateProjectFilter();
+  populateExtraFilters();
   updateStats();
   updateTabCounts();
   renderFindings();
@@ -2231,8 +2393,29 @@ async function init() {
   document.getElementById('severityFilter').addEventListener('change', renderFindings);
   document.getElementById('projectFilter').addEventListener('change', renderFindings);
   document.getElementById('statusFilter').addEventListener('change', renderFindings);
+  const ftFilter = document.getElementById('findingTypeFilter');
+  if (ftFilter) ftFilter.addEventListener('change', renderFindings);
+  const prFilter = document.getElementById('priorityFilter');
+  if (prFilter) prFilter.addEventListener('change', renderFindings);
+  const remFilter = document.getElementById('remediationFilter');
+  if (remFilter) remFilter.addEventListener('change', renderFindings);
+  const pocFilter = document.getElementById('pocFilter');
+  if (pocFilter) pocFilter.addEventListener('change', renderFindings);
+  const advFilter = document.getElementById('adversarialFilter');
+  if (advFilter) advFilter.addEventListener('change', renderFindings);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeDetail();
+  });
+}
+
+function populateExtraFilters() {
+  // Finding types
+  const types = [...new Set(ALL_FINDINGS.map(f => f.finding_type).filter(Boolean))].sort();
+  const ftSel = document.getElementById('findingTypeFilter');
+  if (ftSel) types.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    ftSel.appendChild(opt);
   });
 }
 
@@ -2261,13 +2444,25 @@ function getFilteredFindings() {
   const severity = document.getElementById('severityFilter').value;
   const project = document.getElementById('projectFilter').value;
   const status = document.getElementById('statusFilter').value;
+  const findingType = (document.getElementById('findingTypeFilter') || {}).value || '';
+  const priority = (document.getElementById('priorityFilter') || {}).value || '';
+  const remStatus = (document.getElementById('remediationFilter') || {}).value || '';
+  const pocVal = (document.getElementById('pocFilter') || {}).value || '';
+  const advVal = (document.getElementById('adversarialFilter') || {}).value || '';
 
   let filtered = getCurrentViewFindings().filter(f => {
     if (severity && f.severity !== severity) return false;
     if (project && f.project !== project) return false;
     if (status && f.status !== status) return false;
+    if (findingType && f.finding_type !== findingType) return false;
+    if (priority && f.priority !== priority) return false;
+    if (remStatus && f.remediation_status !== remStatus) return false;
+    if (pocVal === 'true' && !f.has_poc) return false;
+    if (pocVal === 'false' && f.has_poc) return false;
+    if (advVal === 'true' && !f.adversarial_reviewed) return false;
+    if (advVal === 'false' && f.adversarial_reviewed) return false;
     if (search) {
-      const haystack = (f.title + ' ' + f.description + ' ' + f.project + ' ' + (f.cve_ids || '') + ' ' + (f.hackerone_id || '')).toLowerCase();
+      const haystack = (f.title + ' ' + f.description + ' ' + f.project + ' ' + (f.cve_ids || '') + ' ' + (f.hackerone_id || '') + ' ' + (f.finding_type || '') + ' ' + (f.tags ? JSON.stringify(f.tags) : '')).toLowerCase();
       if (!haystack.includes(search)) return false;
     }
     return true;
@@ -2293,9 +2488,12 @@ function updateStats() {
 }
 
 function updateTabCounts() {
+  document.getElementById('projectsCount').textContent = PROJECTS.length || new Set(ALL_FINDINGS.map(f => f.project)).size;
   document.getElementById('ourFindingsCount').textContent = OUR_FINDINGS.length;
   document.getElementById('externalReportsCount').textContent = EXTERNAL_REPORTS.length;
   document.getElementById('knownCvesCount').textContent = CVE_CATALOG.length;
+  document.getElementById('cveCatalogCount').textContent = DB_CVES.length;
+  document.getElementById('hackeroneCount').textContent = DB_HACKERONE.length;
 }
 
 // ============================================================
@@ -2311,9 +2509,26 @@ function switchMainTab(view) {
 // RENDER FINDINGS LIST
 // ============================================================
 function renderFindings() {
-  const findings = getFilteredFindings();
   const container = document.getElementById('findingsList');
   const info = document.getElementById('resultsInfo');
+
+  if (currentMainView === 'projects') {
+    info.textContent = `${PROJECTS.length || new Set(ALL_FINDINGS.map(f => f.project)).size} projects`;
+    renderProjectDashboard(container);
+    return;
+  }
+
+  if (currentMainView === 'cve_catalog') {
+    renderCveCatalog(container, info);
+    return;
+  }
+
+  if (currentMainView === 'hackerone') {
+    renderHackeroneDashboard(container, info);
+    return;
+  }
+
+  const findings = getFilteredFindings();
   const viewFindings = getCurrentViewFindings();
   info.textContent = `Showing ${findings.length} of ${viewFindings.length} findings`;
 
@@ -2329,6 +2544,264 @@ function renderFindings() {
   } else {
     renderFlatList(findings, container);
   }
+}
+
+function renderProjectDashboard(container) {
+  if (PROJECTS.length === 0) {
+    // Fall back to computing project stats from findings
+    const projectMap = {};
+    ALL_FINDINGS.forEach(f => {
+      if (!projectMap[f.project]) projectMap[f.project] = { name: f.project, findings: [], critical: 0, high: 0 };
+      projectMap[f.project].findings.push(f);
+      if (f.severity === 'CRITICAL') projectMap[f.project].critical++;
+      if (f.severity === 'HIGH') projectMap[f.project].high++;
+    });
+    const projects = Object.values(projectMap).sort((a, b) => (b.critical * 100 + b.high) - (a.critical * 100 + a.high));
+
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;">';
+    projects.forEach(p => {
+      const unpatched = p.findings.filter(f => f.fix_status && f.fix_status.toLowerCase().includes('unpatched')).length;
+      html += `
+        <div class="finding-card card-primary" onclick="switchMainTab('our_findings');document.getElementById('projectFilter').value='${esc(p.name)}';renderFindings();" style="cursor:pointer;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:15px;font-weight:600;">${esc(p.name)}</span>
+            <span style="font-size:12px;color:var(--text-muted);">${p.findings.length} findings</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            ${p.critical > 0 ? `<span class="severity-badge severity-CRITICAL">${p.critical} Critical</span>` : ''}
+            ${p.high > 0 ? `<span class="severity-badge severity-HIGH">${p.high} High</span>` : ''}
+            ${unpatched > 0 ? `<span style="font-size:11px;color:var(--critical);background:var(--critical-bg);padding:2px 8px;border-radius:4px;">${unpatched} Unpatched</span>` : ''}
+          </div>
+        </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    return;
+  }
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;">';
+  PROJECTS.forEach(p => {
+    const statusColor = p.assessment_status === 'adversarial-complete' ? 'var(--success)' :
+      p.assessment_status === 'reviewed' ? 'var(--accent)' :
+      p.assessment_status === 'in-progress' ? 'var(--high)' : 'var(--text-muted)';
+    html += `
+      <div class="finding-card card-primary" onclick="switchMainTab('our_findings');document.getElementById('projectFilter').value='${esc(p.name)}';renderFindings();" style="cursor:pointer;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:15px;font-weight:600;">${esc(p.name)}</span>
+          <span style="font-size:11px;color:${statusColor};font-weight:600;text-transform:uppercase;">${esc(p.assessment_status || 'unknown')}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);">${esc(p.ecosystem || '')} ${p.nes_version ? '&middot; ' + esc(p.nes_version) : ''}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
+          ${(p.critical_count || 0) > 0 ? `<span class="severity-badge severity-CRITICAL">${p.critical_count} Critical</span>` : ''}
+          ${(p.high_count || 0) > 0 ? `<span class="severity-badge severity-HIGH">${p.high_count} High</span>` : ''}
+          <span style="font-size:11px;color:var(--text-muted);">${p.finding_count || 0} total</span>
+          ${(p.cves_patched || 0) > 0 ? `<span style="font-size:11px;color:var(--success);background:var(--success-bg);padding:2px 8px;border-radius:4px;">${p.cves_patched} patched</span>` : ''}
+          ${(p.cves_unpatched || 0) > 0 ? `<span style="font-size:11px;color:var(--critical);background:var(--critical-bg);padding:2px 8px;border-radius:4px;">${p.cves_unpatched} unpatched</span>` : ''}
+          ${(p.silent_fixes || 0) > 0 ? `<span style="font-size:11px;color:var(--high);background:var(--high-bg);padding:2px 8px;border-radius:4px;">${p.silent_fixes} silent fixes</span>` : ''}
+        </div>
+      </div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderCveCatalog(container, info) {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const severity = document.getElementById('severityFilter').value;
+  const project = document.getElementById('projectFilter').value;
+
+  let filtered = DB_CVES.filter(c => {
+    if (severity && c.severity !== severity) return false;
+    if (project && c.project !== project) return false;
+    if (search) {
+      const haystack = (c.cve_id + ' ' + c.description + ' ' + c.project).toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  info.textContent = `Showing ${filtered.length} of ${DB_CVES.length} CVEs`;
+
+  if (filtered.length === 0) {
+    container.innerHTML = DB_CVES.length === 0
+      ? '<div class="empty-state"><h3>CVE catalog is being populated</h3><p>Data will appear as agents insert CVE records</p></div>'
+      : '<div class="empty-state"><h3>No CVEs match your filters</h3></div>';
+    return;
+  }
+
+  // Group by project
+  const groups = {};
+  filtered.forEach(c => {
+    if (!groups[c.project]) groups[c.project] = [];
+    groups[c.project].push(c);
+  });
+
+  let html = '';
+  Object.keys(groups).sort().forEach(proj => {
+    const cves = groups[proj];
+    const patched = cves.filter(c => c.patched_in_nes).length;
+    const unpatched = cves.length - patched;
+    html += `<div class="project-group-header">${esc(proj)}
+      <span class="project-group-count">(${cves.length} CVEs &middot; <span style="color:var(--success)">${patched} patched</span> &middot; <span style="color:var(--critical)">${unpatched} unpatched</span>)</span></div>`;
+    cves.forEach(c => {
+      html += `
+        <div class="cve-list-item" onclick="openCveDetail('${c.id}')">
+          <span class="severity-badge severity-${c.severity || 'MEDIUM'}">${c.severity || '?'}${c.cvss_score ? ' ' + c.cvss_score : ''}</span>
+          <span class="cve-title">${esc(c.cve_id)}: ${esc(c.description || '').substring(0, 120)}${(c.description || '').length > 120 ? '...' : ''}</span>
+          <div class="cve-meta">
+            ${c.patched_in_nes ? '<span style="font-size:10px;color:var(--success);background:var(--success-bg);padding:2px 6px;border-radius:4px;font-weight:700;">PATCHED</span>' : '<span style="font-size:10px;color:var(--critical);background:var(--critical-bg);padding:2px 6px;border-radius:4px;font-weight:700;">UNPATCHED</span>'}
+          </div>
+        </div>`;
+    });
+  });
+  container.innerHTML = html;
+}
+
+function openCveDetail(id) {
+  const cve = DB_CVES.find(c => c.id === id);
+  if (!cve) return;
+  // Reuse detail overlay
+  document.getElementById('detailTitle').textContent = cve.cve_id;
+  currentFinding = null; // not a finding
+  currentTab = 'overview';
+
+  let html = '<div class="tab-content active"><div class="detail-body">';
+  html += `<div class="detail-section"><div class="detail-section-header">CVE Details</div><div class="detail-tags">
+    <span class="severity-badge severity-${cve.severity || 'MEDIUM'}">${cve.severity || '?'}${cve.cvss_score ? ' (' + cve.cvss_score + ')' : ''}</span>
+    <span class="meta-tag">${esc(cve.project)}</span>
+    ${cve.patched_in_nes ? '<span style="color:var(--success);background:var(--success-bg);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">Patched in NES</span>' : '<span style="color:var(--critical);background:var(--critical-bg);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">Unpatched</span>'}
+    ${cve.affected_versions ? `<span class="meta-tag">Affected: ${esc(cve.affected_versions)}</span>` : ''}
+    ${cve.fixed_in_upstream ? `<span class="meta-tag">Fixed upstream: ${esc(cve.fixed_in_upstream)}</span>` : ''}
+  </div></div>`;
+
+  if (cve.cvss_vector) {
+    html += `<div class="detail-section"><div class="detail-section-header">CVSS</div>
+      <div class="detail-section-body"><span style="font-family:monospace;font-size:12px;">${esc(cve.cvss_vector)}</span></div></div>`;
+  }
+
+  html += `<div class="detail-section"><div class="detail-section-header">Description</div>
+    <div class="detail-section-body">${esc(cve.description || 'No description available')}</div></div>`;
+
+  if (cve.nes_fix_branch || cve.nes_fix_commit) {
+    html += `<div class="detail-section"><div class="detail-section-header">NES Fix</div><div class="detail-section-body">`;
+    if (cve.nes_fix_branch) html += `<strong>Branch:</strong> ${esc(cve.nes_fix_branch)}<br>`;
+    if (cve.nes_fix_commit) html += `<strong>Commit:</strong> <span style="font-family:monospace;">${esc(cve.nes_fix_commit)}</span><br>`;
+    if (cve.patch_evidence) html += `<strong>Evidence:</strong><br><pre style="background:var(--bg-tertiary);padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;">${esc(cve.patch_evidence)}</pre>`;
+    html += `</div></div>`;
+  }
+
+  if (cve.references) {
+    const refs = typeof cve.references === 'string' ? JSON.parse(cve.references) : cve.references;
+    if (refs && refs.length > 0) {
+      html += `<div class="detail-section"><div class="detail-section-header">References</div><div class="detail-section-body">`;
+      refs.forEach(r => { html += `<a href="${esc(r)}" target="_blank" style="color:var(--accent);display:block;margin-bottom:4px;word-break:break-all;">${esc(r)}</a>`; });
+      html += `</div></div>`;
+    }
+  }
+
+  html += '</div></div>';
+  document.getElementById('detailContent').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function renderHackeroneDashboard(container, info) {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const project = document.getElementById('projectFilter').value;
+
+  let filtered = DB_HACKERONE.filter(r => {
+    if (project && r.project !== project) return false;
+    if (search) {
+      const haystack = (r.title + ' ' + r.description + ' ' + r.project + ' ' + (r.hackerone_id || '')).toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  info.textContent = `Showing ${filtered.length} of ${DB_HACKERONE.length} HackerOne reports`;
+
+  if (filtered.length === 0) {
+    container.innerHTML = DB_HACKERONE.length === 0
+      ? '<div class="empty-state"><h3>HackerOne reports being populated</h3><p>Data will appear as agents insert report records</p></div>'
+      : '<div class="empty-state"><h3>No reports match your filters</h3></div>';
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(r => {
+    const statusColor = r.status === 'resolved' ? 'var(--success)' :
+      r.status === 'triaged' ? 'var(--accent)' :
+      r.status === 'submitted' ? 'var(--high)' :
+      r.status === 'informative' ? 'var(--text-muted)' :
+      r.status === 'duplicate' ? 'var(--text-muted)' : 'var(--text-secondary)';
+    html += `
+      <div class="finding-card card-external" onclick="openH1Detail('${r.id}')">
+        <div class="finding-card-header">
+          <span class="severity-badge severity-${r.severity || 'MEDIUM'}">${r.severity || '?'}</span>
+          <span class="source-badge badge-hackerone">H1#${esc(r.hackerone_id || '')}</span>
+          <span class="finding-title">${esc(r.title)}</span>
+        </div>
+        <div class="finding-desc-preview">${esc(r.description || '')}</div>
+        <div class="finding-meta">
+          <span class="meta-tag">${esc(r.project)}</span>
+          <span style="font-size:11px;color:${statusColor};font-weight:600;">${esc(r.status || 'unknown')}</span>
+          ${r.reporter ? `<span class="meta-tag">Reporter: ${esc(r.reporter)}</span>` : ''}
+          ${r.bounty_amount ? `<span class="meta-tag" style="color:var(--success);">$${r.bounty_amount}</span>` : ''}
+          ${r.submitted_at ? `<span class="meta-tag">${formatTime(r.submitted_at)}</span>` : ''}
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function openH1Detail(id) {
+  const r = DB_HACKERONE.find(h => h.id === id);
+  if (!r) return;
+  document.getElementById('detailTitle').textContent = r.title;
+  currentFinding = null;
+  currentTab = 'overview';
+
+  let html = '<div class="tab-content active"><div class="detail-body">';
+  html += `<div class="detail-section"><div class="detail-section-header">Report Details</div><div class="detail-tags">
+    <span class="severity-badge severity-${r.severity || 'MEDIUM'}">${r.severity || '?'}</span>
+    <span class="source-badge badge-hackerone">H1#${esc(r.hackerone_id || '')}</span>
+    <span class="meta-tag">${esc(r.project)}</span>
+    <span class="meta-tag" style="font-weight:600;">${esc(r.status || 'unknown')}</span>
+    ${r.reporter ? `<span class="meta-tag">Reporter: ${esc(r.reporter)}</span>` : ''}
+    ${r.bounty_amount ? `<span class="meta-tag" style="color:var(--success);font-weight:700;">Bounty: $${r.bounty_amount}</span>` : ''}
+    ${r.url ? `<a href="${esc(r.url)}" target="_blank" class="meta-tag" style="color:var(--accent);text-decoration:none;">View on H1</a>` : ''}
+  </div></div>`;
+
+  html += `<div class="detail-section"><div class="detail-section-header">Description</div>
+    <div class="detail-section-body">${esc(r.description || 'No description')}</div></div>`;
+
+  if (r.submitted_at || r.resolved_at) {
+    html += `<div class="detail-section"><div class="detail-section-header">Timeline</div><div class="detail-section-body">`;
+    if (r.submitted_at) html += `<strong>Submitted:</strong> ${new Date(r.submitted_at).toLocaleDateString()}<br>`;
+    if (r.resolved_at) html += `<strong>Resolved:</strong> ${new Date(r.resolved_at).toLocaleDateString()}<br>`;
+    html += `</div></div>`;
+  }
+
+  // Show related findings
+  const relatedIds = r.related_finding_ids ? (typeof r.related_finding_ids === 'string' ? JSON.parse(r.related_finding_ids) : r.related_finding_ids) : [];
+  if (relatedIds.length > 0) {
+    const relatedFindings = ALL_FINDINGS.filter(f => relatedIds.includes(f.id));
+    if (relatedFindings.length > 0) {
+      html += `<div class="detail-section"><div class="detail-section-header">Related Findings</div><div style="padding:10px 16px;">`;
+      relatedFindings.forEach(f => {
+        html += `<div class="cve-list-item" style="margin-bottom:4px;" onclick="event.stopPropagation();openDetail('${f.id}')">
+          <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+          <span class="cve-title">${esc(f.title)}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+  }
+
+  html += '</div></div>';
+  document.getElementById('detailContent').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
 }
 
 function renderFlatList(findings, container) {
@@ -2428,7 +2901,8 @@ function renderFindingCard(f) {
   return `
     <div class="finding-card ${getCardClass(f)}" onclick="openDetail('${f.id}')">
       <div class="finding-card-header">
-        <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+        <span class="severity-badge severity-${f.severity}">${f.severity}${f.cvss_score ? ' ' + f.cvss_score : ''}</span>
+        ${f.finding_type ? `<span class="meta-tag" style="color:var(--accent);border:1px solid rgba(88,166,255,0.3);font-size:10px;font-weight:600;">${esc(f.finding_type)}</span>` : ''}
         ${getSourceBadgeHtml(f)}
         <span class="finding-title">${esc(f.title)}</span>
       </div>
@@ -2436,10 +2910,13 @@ function renderFindingCard(f) {
       <div class="finding-meta">
         <span class="meta-tag">${esc(f.project)}</span>
         <span class="status-tag status-${f.status}">${formatStatus(f.status)}</span>
+        ${f.priority ? `<span class="meta-tag" style="color:${f.priority.startsWith('P0') ? 'var(--critical)' : f.priority.startsWith('P1') ? 'var(--high)' : 'var(--text-secondary)'};font-weight:600;">${esc(f.priority)}</span>` : ''}
         ${f.hackerone_id ? `<span class="meta-tag category-hackerone">H1#${f.hackerone_id}</span>` : ''}
         ${f.cve_ids ? `<span class="meta-tag category-cve_catalog">${esc(f.cve_ids.split(',')[0])}${f.cve_ids.includes(',') ? '...' : ''}</span>` : ''}
         ${f.fix_status ? `<span class="meta-tag">${esc(f.fix_status)}</span>` : ''}
-        ${f.reproduction_path ? '<span class="meta-tag" style="color:#3fb950">Has PoC</span>' : ''}
+        ${f.remediation_status ? `<span class="meta-tag" style="color:${f.remediation_status === 'fixed' ? 'var(--success)' : f.remediation_status === 'open' ? 'var(--critical)' : 'var(--text-secondary)'};">${esc(f.remediation_status)}</span>` : ''}
+        ${f.has_poc || f.reproduction_path ? '<span class="meta-tag" style="color:#3fb950">Has PoC</span>' : ''}
+        ${f.adversarial_reviewed ? '<span class="meta-tag" style="color:#a78bfa">Adversarial Reviewed</span>' : ''}
       </div>
     </div>`;
 }
@@ -2557,38 +3034,90 @@ function renderDetailContent() {
   // Overview tab
   html += `<div class="tab-content ${currentTab === 'overview' ? 'active' : ''}">`;
   html += `<div class="detail-section"><div class="detail-section-header">Classification</div><div class="detail-tags">
-    <span class="severity-badge severity-${f.severity}">${f.severity}</span>
+    <span class="severity-badge severity-${f.severity}">${f.severity}${f.cvss_score ? ' (' + f.cvss_score + ')' : ''}</span>
+    ${f.finding_type ? `<span class="meta-tag" style="color:var(--accent);border:1px solid rgba(88,166,255,0.3);font-weight:600;">${esc(f.finding_type)}</span>` : ''}
     ${getSourceBadgeHtml(f)}
     <span class="meta-tag">${esc(f.project)}</span>
     <span class="status-tag status-${f.status}">${formatStatus(f.status)}</span>
+    ${f.priority ? `<span class="meta-tag" style="color:${f.priority.startsWith('P0') ? 'var(--critical)' : f.priority.startsWith('P1') ? 'var(--high)' : 'var(--text-secondary)'};font-weight:700;">${esc(f.priority)}</span>` : ''}
     ${f.hackerone_id ? `<span class="meta-tag category-hackerone">HackerOne #${f.hackerone_id}</span>` : ''}
     ${f.cve_ids ? `<span class="meta-tag category-cve_catalog">${esc(f.cve_ids)}</span>` : ''}
     ${f.fix_status ? `<span class="meta-tag">${esc(f.fix_status)}</span>` : ''}
     ${f.affected_versions ? `<span class="meta-tag">${esc(f.affected_versions)}</span>` : ''}
+    ${f.has_poc ? '<span class="source-badge badge-has-poc">Has PoC</span>' : ''}
+    ${f.adversarial_reviewed ? '<span class="meta-tag" style="color:#a78bfa;border:1px solid rgba(167,139,250,0.3);">Adversarial Reviewed</span>' : ''}
+    ${f.remediation_status ? `<span class="meta-tag" style="color:${f.remediation_status === 'fixed' ? 'var(--success)' : f.remediation_status === 'open' ? 'var(--critical)' : 'var(--text-secondary)'};">Remediation: ${esc(f.remediation_status)}</span>` : ''}
+    ${f.assigned_to ? `<span class="meta-tag">Assigned: ${esc(f.assigned_to)}</span>` : ''}
   </div></div>`;
 
-  // Status update
-  html += `<div class="detail-section"><div class="detail-section-header">Update Status</div>
-    <div class="status-controls">
-      <select class="status-select" id="statusSelect">
-        ${['investigating','confirmed','in_progress','fixed','released','wont_fix','duplicate'].map(s =>
-          `<option value="${s}" ${f.status === s ? 'selected' : ''}>${formatStatus(s)}</option>`
-        ).join('')}
-      </select>
-      <button class="btn" onclick="updateStatus()">Update</button>
+  // CVSS details if available
+  if (f.cvss_score || f.cvss_vector || f.attack_vector) {
+    html += `<div class="detail-section"><div class="detail-section-header">CVSS / Attack Details</div><div class="detail-section-body">`;
+    if (f.cvss_score) html += `<strong>CVSS Score:</strong> ${f.cvss_score}<br>`;
+    if (f.cvss_vector) html += `<strong>CVSS Vector:</strong> <span style="font-family:monospace;font-size:12px;">${esc(f.cvss_vector)}</span><br>`;
+    if (f.attack_vector) html += `<strong>Attack Vector:</strong> ${esc(f.attack_vector)}<br>`;
+    if (f.original_severity && f.original_severity !== f.severity) html += `<strong>Original Severity:</strong> ${esc(f.original_severity)} (adjusted to ${f.severity})<br>`;
+    if (f.nes_branch) html += `<strong>NES Branch:</strong> ${esc(f.nes_branch)}<br>`;
+    if (f.nes_version) html += `<strong>NES Version:</strong> ${esc(f.nes_version)}<br>`;
+    if (f.affected_component) html += `<strong>Component:</strong> ${esc(f.affected_component)}<br>`;
+    html += `</div></div>`;
+  }
+
+  // Tags
+  const tags = f.tags ? (typeof f.tags === 'string' ? JSON.parse(f.tags) : f.tags) : [];
+  if (tags.length > 0) {
+    html += `<div class="detail-section"><div class="detail-section-header">Tags</div><div class="detail-tags">`;
+    tags.forEach(t => { html += `<span class="meta-tag">${esc(t)}</span>`; });
+    html += `</div></div>`;
+  }
+
+  // Status / Priority / Severity update
+  html += `<div class="detail-section"><div class="detail-section-header">Update Finding</div>
+    <div class="status-controls" style="flex-wrap:wrap;">
+      <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:120px;">
+        <label style="font-size:11px;color:var(--text-muted);">Status</label>
+        <select class="status-select" id="statusSelect">
+          ${['investigating','confirmed','in_progress','fixed','released','wont_fix','duplicate'].map(s =>
+            `<option value="${s}" ${f.status === s ? 'selected' : ''}>${formatStatus(s)}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:120px;">
+        <label style="font-size:11px;color:var(--text-muted);">Priority</label>
+        <select class="status-select" id="prioritySelect">
+          <option value="" ${!f.priority ? 'selected' : ''}>None</option>
+          ${['P0-urgent','P1-high','P2-medium','P3-low'].map(p =>
+            `<option value="${p}" ${f.priority === p ? 'selected' : ''}>${p}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:120px;">
+        <label style="font-size:11px;color:var(--text-muted);">Severity</label>
+        <select class="status-select" id="severitySelect">
+          ${['CRITICAL','HIGH','MEDIUM','LOW'].map(s =>
+            `<option value="${s}" ${f.severity === s ? 'selected' : ''}>${s}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <button class="btn" onclick="updateFinding()" style="align-self:flex-end;">Save Changes</button>
     </div></div>`;
 
   html += `<div class="detail-section"><div class="detail-section-header">Description</div>
     <div class="detail-section-body">${esc(f.description)}</div></div>`;
 
   if (f.adversarial_verdict) {
-    html += `<div class="detail-section"><div class="detail-section-header">Adversarial Review Verdict</div>
+    html += `<div class="detail-section"><div class="detail-section-header">Adversarial Review Verdict${f.reviewed_by ? ' (' + esc(f.reviewed_by) + ')' : ''}</div>
       <div class="detail-section-body">${esc(f.adversarial_verdict)}</div></div>`;
   }
 
-  if (f.reproduction_path) {
+  if (f.reproduction_path || f.poc_path) {
     html += `<div class="detail-section"><div class="detail-section-header">Reproduction</div>
-      <div class="detail-section-body">Reproduction materials available at:<br><span class="repro-path">${esc(f.reproduction_path)}</span></div></div>`;
+      <div class="detail-section-body">Reproduction materials available at:<br><span class="repro-path">${esc(f.poc_path || f.reproduction_path)}</span></div></div>`;
+  }
+
+  if (f.remediation_pr) {
+    html += `<div class="detail-section"><div class="detail-section-header">Fix PR</div>
+      <div class="detail-section-body"><a href="${esc(f.remediation_pr)}" target="_blank" style="color:var(--accent);">${esc(f.remediation_pr)}</a></div></div>`;
   }
   html += '</div>';
 
@@ -2610,28 +3139,104 @@ function renderDetailContent() {
 
   // Discussion tab
   html += `<div class="tab-content ${currentTab === 'discussion' ? 'active' : ''}">`;
-  const findingComments = comments[f.id] || [];
-  html += `<div class="detail-section"><div class="detail-section-header">Comments (${findingComments.length})</div>`;
-  if (findingComments.length > 0) {
-    html += '<div class="comments-list">';
-    findingComments.forEach(c => {
-      html += `<div class="comment-item">
-        <div class="comment-header">
-          <span class="comment-author">${esc(c.author)}</span>
-          <span class="comment-time">${formatTime(c.created_at)}</span>
-        </div>
-        <div class="comment-text">${esc(c.text)}</div>
-      </div>`;
-    });
-    html += '</div>';
-  } else {
-    html += '<div class="comments-list"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No comments yet</div></div>';
-  }
+
+  // PoC viewer section
+  html += `<div class="detail-section" id="pocSection" style="display:none;"><div class="detail-section-header">Proof of Concept</div>
+    <div id="pocContent" style="padding:14px 16px;"><div style="color:var(--text-muted);font-size:13px;">Loading PoCs...</div></div></div>`;
+
+  // Comments section
+  html += `<div class="detail-section"><div class="detail-section-header">Comments</div>`;
+  html += '<div id="commentsListEl" class="comments-list"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">Loading comments...</div></div>';
   html += `<div class="comment-form">
     <textarea class="comment-input" id="commentInput" placeholder="Add a comment..." rows="2"></textarea>
     <button class="btn" onclick="addComment()" style="align-self:flex-end;">Post</button>
   </div></div>`;
   html += '</div>';
+
+  // Load comments and PoCs asynchronously when discussion tab is active
+  if (currentTab === 'discussion' && f.id) {
+    // Load comments
+    loadComments(f.id).then(dbComments => {
+      const el = document.getElementById('commentsListEl');
+      if (!el) return;
+      // Merge with local comments
+      const localComments = comments[f.id] || [];
+      const allComments = [...dbComments, ...localComments];
+      if (allComments.length === 0) {
+        el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No comments yet</div>';
+        return;
+      }
+      el.innerHTML = allComments.map(c => `
+        <div class="comment-item">
+          <div class="comment-header">
+            <span class="comment-author">${esc(c.author)}</span>
+            <span class="comment-time">${formatTime(c.created_at)}</span>
+          </div>
+          <div class="comment-text">${esc(c.text)}</div>
+        </div>`).join('');
+    });
+
+    // Load PoCs
+    loadPocs(f.id).then(pocs => {
+      const section = document.getElementById('pocSection');
+      const el = document.getElementById('pocContent');
+      if (!el || !section) return;
+      if (pocs.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = 'block';
+      el.innerHTML = pocs.map(p => `
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div>
+              <strong style="font-size:14px;">${esc(p.title)}</strong>
+              ${p.poc_type ? `<span class="meta-tag" style="margin-left:8px;">${esc(p.poc_type)}</span>` : ''}
+              ${p.file_name ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${esc(p.file_name)}</span>` : ''}
+            </div>
+            ${p.content ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="navigator.clipboard.writeText(this.closest('[data-poc]').querySelector('pre').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)})">Copy</button>` : ''}
+          </div>
+          ${p.content ? `<pre data-poc style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;padding:12px;font-family:monospace;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;color:var(--text-primary);max-height:400px;overflow-y:auto;"><code>${esc(p.content)}</code></pre>` : ''}
+          ${p.reproduction_steps ? `<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);"><strong>Reproduction Steps:</strong><br><div style="white-space:pre-wrap;margin-top:4px;">${esc(p.reproduction_steps)}</div></div>` : ''}
+          ${p.expected_result ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);"><strong>Expected:</strong> ${esc(p.expected_result)}</div>` : ''}
+          ${p.environment ? `<div style="margin-top:4px;font-size:12px;color:var(--text-muted);"><strong>Environment:</strong> ${esc(p.environment)}</div>` : ''}
+        </div>`).join('<div style="border-top:1px solid var(--border);margin:12px 0;"></div>');
+    });
+  }
+
+  // History tab (audit trail)
+  html += `<div class="tab-content ${currentTab === 'history' ? 'active' : ''}" id="historyTabContent">`;
+  html += `<div class="detail-section"><div class="detail-section-header">Change History</div>`;
+  html += `<div id="historyList" style="padding:14px 16px;"><div style="color:var(--text-muted);font-size:13px;text-align:center;">Loading audit trail...</div></div>`;
+  html += `</div></div>`;
+
+  // Load history asynchronously if on history tab
+  if (currentTab === 'history' && f.id) {
+    loadHistory(f.id).then(entries => {
+      const el = document.getElementById('historyList');
+      if (!el) return;
+      if (entries.length === 0) {
+        el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No changes recorded yet</div>';
+        return;
+      }
+      el.innerHTML = entries.map(e => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start;">
+          <div style="flex-shrink:0;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px;"></div>
+          <div style="flex:1;">
+            <div style="font-size:13px;color:var(--text-primary);">
+              <strong>${esc(e.field_changed)}</strong> changed from
+              <span style="color:var(--text-muted);text-decoration:line-through;">${esc(e.old_value || '(none)')}</span>
+              to <span style="color:var(--accent);font-weight:600;">${esc(e.new_value || '(none)')}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+              by ${esc(e.changed_by)} ${e.created_at ? '&middot; ' + formatTime(e.created_at) : ''}
+              ${e.reason ? '<br>' + esc(e.reason) : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    });
+  }
 
   // Related items section (visible on all tabs)
   const related = findRelatedItems(f);
@@ -2681,31 +3286,58 @@ function renderDetailContent() {
   container.innerHTML = html;
 }
 
-async function updateStatus() {
+async function updateFinding() {
   if (!currentFinding) return;
   const newStatus = document.getElementById('statusSelect').value;
-  const oldStatus = currentFinding.status;
-  if (newStatus === oldStatus) return;
+  const newPriority = document.getElementById('prioritySelect').value;
+  const newSeverity = document.getElementById('severitySelect').value;
+
+  const changes = [];
+  if (newStatus !== currentFinding.status) changes.push({ field: 'status', old: currentFinding.status, new: newStatus });
+  if (newPriority !== (currentFinding.priority || '')) changes.push({ field: 'priority', old: currentFinding.priority || '', new: newPriority });
+  if (newSeverity !== currentFinding.severity) changes.push({ field: 'severity', old: currentFinding.severity, new: newSeverity });
+
+  if (changes.length === 0) return;
+
+  // Apply locally
   currentFinding.status = newStatus;
-  // Persist to DB
+  currentFinding.priority = newPriority;
+  currentFinding.severity = newSeverity;
+
+  // Persist to DB and log changes
   try {
-    await DB.mutate(`UPDATE security_findings SET status = '${DB.escape(newStatus)}', updated_at = now() WHERE id = '${DB.escape(currentFinding.id)}'`);
+    const setClauses = [];
+    if (changes.some(c => c.field === 'status')) setClauses.push(`status = '${DB.escape(newStatus)}'`);
+    if (changes.some(c => c.field === 'priority')) setClauses.push(`priority = '${DB.escape(newPriority)}'`);
+    if (changes.some(c => c.field === 'severity')) setClauses.push(`severity = '${DB.escape(newSeverity)}'`);
+    setClauses.push('updated_at = now()');
+
+    await DB.mutate(`UPDATE security_findings SET ${setClauses.join(', ')} WHERE id = '${DB.escape(currentFinding.id)}'`);
+
+    // Log each change to audit trail
+    await Promise.all(changes.map(c => logChange(currentFinding.id, c.field, c.old, c.new)));
   } catch (e) {
-    console.warn('Failed to persist status update to DB:', e);
+    console.warn('Failed to persist finding update to DB:', e);
   }
   updateStats();
   renderFindings();
   renderDetailContent();
 }
 
-function addComment() {
+// Keep backward compat
+async function updateStatus() { return updateFinding(); }
+
+async function addComment() {
   if (!currentFinding) return;
   const input = document.getElementById('commentInput');
   const text = input.value.trim();
   if (!text) return;
+  // Save to DB
+  await saveComment(currentFinding.id, 'App User', text);
+  // Also keep local copy for immediate display
   if (!comments[currentFinding.id]) comments[currentFinding.id] = [];
   comments[currentFinding.id].push({
-    author: 'Ryan',
+    author: 'App User',
     text: text,
     created_at: new Date().toISOString()
   });
