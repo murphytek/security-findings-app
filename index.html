@@ -2213,9 +2213,9 @@ function dbRowToFinding(row) {
 
 function categorizeFinding(f) {
   const cat = (f.category || '').toLowerCase();
-  if (cat === 'hackerone') return 'external';
+  if (cat === 'external reports' || cat === 'external_reports') return 'external';
   if (cat === 'cve_catalog') return 'cve';
-  return 'our'; // code_review, investigation, etc.
+  return 'our'; // code_review, investigation, hackerone (HackerOne findings come from their own table now), etc.
 }
 
 // ============================================================
@@ -2285,7 +2285,7 @@ async function loadFromDatabase() {
 
 async function loadCves() {
   try {
-    const rows = await DB.query('SELECT * FROM security_cves ORDER BY severity ASC, cve_id ASC');
+    const rows = await DB.query('SELECT * FROM security_cves ORDER BY project, cve_id');
     return rows || [];
   } catch (e) { console.warn('Failed to load CVEs:', e); return []; }
 }
@@ -2649,7 +2649,12 @@ function renderCveCatalog(container, info) {
           <span class="severity-badge severity-${c.severity || 'MEDIUM'}">${c.severity || '?'}${c.cvss_score ? ' ' + c.cvss_score : ''}</span>
           <span class="cve-title">${esc(c.cve_id)}: ${esc(c.description || '').substring(0, 120)}${(c.description || '').length > 120 ? '...' : ''}</span>
           <div class="cve-meta">
-            ${c.patched_in_nes ? '<span style="font-size:10px;color:var(--success);background:var(--success-bg);padding:2px 6px;border-radius:4px;font-weight:700;">PATCHED</span>' : '<span style="font-size:10px;color:var(--critical);background:var(--critical-bg);padding:2px 6px;border-radius:4px;font-weight:700;">UNPATCHED</span>'}
+            ${c.affected_versions ? `<span style="font-size:10px;color:var(--text-muted);">Affected: ${esc(c.affected_versions)}</span>` : ''}
+            ${c.patched_in_nes
+              ? '<span style="font-size:10px;color:var(--success);background:var(--success-bg);padding:2px 6px;border-radius:4px;font-weight:700;">&#10003; Patched in NES</span>'
+              : '<span style="font-size:10px;color:var(--critical);background:var(--critical-bg);padding:2px 6px;border-radius:4px;font-weight:700;">&#10007; Unpatched</span>'}
+            ${c.nes_fix_branch ? `<span style="font-size:10px;color:var(--accent);font-family:monospace;">${esc(c.nes_fix_branch)}</span>` : ''}
+            ${c.published_at ? `<span style="font-size:10px;color:var(--text-muted);">${new Date(c.published_at).toLocaleDateString()}</span>` : ''}
           </div>
         </div>`;
     });
@@ -2748,6 +2753,7 @@ function renderHackeroneDashboard(container, info) {
           ${r.reporter ? `<span class="meta-tag">Reporter: ${esc(r.reporter)}</span>` : ''}
           ${r.bounty_amount ? `<span class="meta-tag" style="color:var(--success);">$${r.bounty_amount}</span>` : ''}
           ${r.submitted_at ? `<span class="meta-tag">${formatTime(r.submitted_at)}</span>` : ''}
+          ${(() => { const cves = r.related_cves ? (typeof r.related_cves === 'string' ? JSON.parse(r.related_cves) : r.related_cves) : []; return cves.length > 0 ? cves.map(c => `<span class="meta-tag category-cve_catalog">${esc(c)}</span>`).join('') : ''; })()}
         </div>
       </div>`;
   });
@@ -2955,57 +2961,46 @@ function switchTab(tab) {
 }
 
 function findRelatedItems(f) {
-  const result = { cves: [], hackerone: [], findings: [] };
+  const result = { cves: [], hackerone: [], pocs: [], findings: [] };
   if (!f) return result;
 
-  // Extract CVE IDs from title, description, cve_ids fields
-  const cvePattern = /CVE-\d{4}-\d{4,}/g;
-  const textBlob = (f.title || '') + ' ' + (f.description || '') + ' ' + (f.adversarial_verdict || '') + ' ' + (f.cve_ids || '');
-  const mentionedCves = [...new Set((textBlob.match(cvePattern) || []))];
-
-  // Find matching CVE catalog entries
-  if (mentionedCves.length > 0) {
-    CVE_CATALOG.forEach(c => {
-      if (c.id === f.id) return;
-      const cCves = (c.cve_ids || '').match(cvePattern) || [];
-      if (cCves.some(id => mentionedCves.includes(id))) {
-        result.cves.push(c);
-      }
+  // 1. Related CVEs: use the finding's related_cves JSON array, look up details from DB_CVES
+  const relatedCveIds = f.related_cves ? (typeof f.related_cves === 'string' ? JSON.parse(f.related_cves) : f.related_cves) : [];
+  if (relatedCveIds.length > 0) {
+    relatedCveIds.forEach(cveId => {
+      const match = DB_CVES.find(c => c.cve_id === cveId);
+      if (match) result.cves.push(match);
     });
   }
 
-  // Find related HackerOne reports by project and component overlap
-  const fProject = (f.project || '').toLowerCase();
-  const fFiles = (f.affected_files || '').toLowerCase();
-  const fDesc = (f.description || '').toLowerCase();
-  EXTERNAL_REPORTS.forEach(h => {
-    if (h.id === f.id) return;
-    const hProject = (h.project || '').toLowerCase();
-    const hFiles = (h.affected_files || '').toLowerCase();
-    const hDesc = (h.description || '').toLowerCase();
-    // Match if same project family (Struts matches Struts 1.3.10 and vice versa)
-    const projectMatch = fProject.includes(hProject) || hProject.includes(fProject) ||
-      (fProject.includes('struts') && hProject.includes('struts')) ||
-      (fProject.includes('solr') && hProject.includes('solr'));
-    if (!projectMatch) return;
-    // Check for component overlap via affected files or description keywords
-    const fKeywords = extractKeywords(fFiles + ' ' + fDesc);
-    const hKeywords = extractKeywords(hFiles + ' ' + hDesc);
-    const overlap = fKeywords.filter(k => hKeywords.includes(k));
-    if (overlap.length > 0) {
+  // Also check cve_ids field for legacy/fallback matching
+  if (result.cves.length === 0) {
+    const cvePattern = /CVE-\d{4}-\d{4,}/g;
+    const textBlob = (f.cve_ids || '') + ' ' + (f.title || '') + ' ' + (f.description || '');
+    const mentionedCves = [...new Set((textBlob.match(cvePattern) || []))];
+    if (mentionedCves.length > 0) {
+      DB_CVES.forEach(c => {
+        if (mentionedCves.includes(c.cve_id) && !result.cves.some(rc => rc.id === c.id)) {
+          result.cves.push(c);
+        }
+      });
+    }
+  }
+
+  // 2. Related HackerOne reports: find reports where related_finding_ids contains this finding's ID
+  DB_HACKERONE.forEach(h => {
+    const hRelated = h.related_finding_ids ? (typeof h.related_finding_ids === 'string' ? JSON.parse(h.related_finding_ids) : h.related_finding_ids) : [];
+    if (hRelated.includes(f.id)) {
       result.hackerone.push(h);
     }
   });
 
-  // Find related findings by affected files or same project
+  // 3. Related findings by affected files or same project (fallback)
   const allOther = [...OUR_FINDINGS, ...CVE_CATALOG].filter(o => o.id !== f.id && !result.cves.some(c => c.id === o.id));
   allOther.forEach(o => {
     if (result.findings.length >= 5) return; // cap at 5
-    const oFiles = (o.affected_files || '').toLowerCase();
-    const oProject = (o.project || '').toLowerCase();
-    // Match by shared file references
     const fFileParts = (f.affected_files || '').split(/[,;\s]+/).filter(p => p.length > 4).map(p => p.toLowerCase().replace(/\.java.*/, '.java'));
-    const oFileParts = oFiles.split(/[,;\s]+/).filter(p => p.length > 4).map(p => p.replace(/\.java.*/, '.java'));
+    const oFileParts = (o.affected_files || '').toLowerCase().split(/[,;\s]+/).filter(p => p.length > 4).map(p => p.replace(/\.java.*/, '.java'));
     const fileOverlap = fFileParts.some(fp => oFileParts.some(op => fp.includes(op) || op.includes(fp)));
     if (fileOverlap) {
       result.findings.push(o);
@@ -3245,12 +3240,12 @@ function renderDetailContent() {
     html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:16px 0 10px;border-top:1px solid var(--border);">Related</div>';
 
     if (related.cves.length > 0) {
-      html += '<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Known CVEs</div>';
+      html += '<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Related CVEs</div>';
       related.cves.forEach(r => {
-        html += `<div class="cve-list-item" style="margin-bottom:4px;" onclick="openDetail('${r.id}')">
-          <span class="severity-badge severity-${r.severity}">${r.severity}</span>
-          <span class="cve-title">${esc(r.title)}</span>
-          <span class="source-badge badge-cve">CVE</span>
+        html += `<div class="cve-list-item" style="margin-bottom:4px;" onclick="openCveDetail('${r.id}')">
+          <span class="severity-badge severity-${r.severity}">${r.severity}${r.cvss_score ? ' ' + r.cvss_score : ''}</span>
+          <span class="cve-title">${esc(r.cve_id)}: ${esc((r.description || '').substring(0, 100))}${(r.description || '').length > 100 ? '...' : ''}</span>
+          ${r.patched_in_nes ? '<span style="color:var(--success);font-size:11px;font-weight:700;">&#10003; NES</span>' : '<span style="color:var(--critical);font-size:11px;font-weight:700;">&#10007; NES</span>'}
         </div>`;
       });
       html += '</div>';
@@ -3259,10 +3254,10 @@ function renderDetailContent() {
     if (related.hackerone.length > 0) {
       html += '<div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">HackerOne Reports</div>';
       related.hackerone.forEach(r => {
-        html += `<div class="cve-list-item" style="margin-bottom:4px;" onclick="openDetail('${r.id}')">
+        html += `<div class="cve-list-item" style="margin-bottom:4px;" onclick="openH1Detail('${r.id}')">
           <span class="severity-badge severity-${r.severity}">${r.severity}</span>
           <span class="cve-title">${esc(r.title)}</span>
-          <span class="source-badge badge-hackerone">H1#${r.hackerone_id}</span>
+          <span class="source-badge badge-hackerone">H1#${esc(r.hackerone_id || '')}</span>
         </div>`;
       });
       html += '</div>';
@@ -3283,7 +3278,29 @@ function renderDetailContent() {
     html += '</div>';
   }
 
+  // PoC section (loaded asynchronously from security_pocs)
+  html += '<div id="relatedPocsSection" style="display:none;padding:0 20px 20px;"></div>';
+
   container.innerHTML = html;
+
+  // Load PoCs asynchronously for the related section
+  if (f.id) {
+    loadPocs(f.id).then(pocs => {
+      const section = document.getElementById('relatedPocsSection');
+      if (!section || pocs.length === 0) return;
+      section.style.display = 'block';
+      let pocHtml = '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:0 0 10px;border-top:1px solid var(--border);margin-top:-1px;padding-top:16px;">Proof of Concept</div>';
+      pocs.forEach(p => {
+        pocHtml += `<div style="margin-bottom:8px;padding:8px 12px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${esc(p.title)}</div>
+          ${p.poc_type ? `<span class="meta-tag" style="font-size:10px;">${esc(p.poc_type)}</span>` : ''}
+          ${p.file_name ? `<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">${esc(p.file_name)}</span>` : ''}
+          ${p.reproduction_steps ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${esc(p.reproduction_steps).substring(0, 200)}${(p.reproduction_steps || '').length > 200 ? '...' : ''}</div>` : ''}
+        </div>`;
+      });
+      section.innerHTML = pocHtml;
+    });
+  }
 }
 
 async function updateFinding() {
