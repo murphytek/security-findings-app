@@ -887,12 +887,13 @@ pre code {
 </div>
 <style>@keyframes loadPulse { 0%,100%{width:30%;opacity:0.6} 50%{width:70%;opacity:1} }</style>
 
+<script src="config.js"></script>
 <script>
 // ============================================================
 // DATABASE API LAYER
 // ============================================================
-const DB_ENDPOINT = '/95efe33d/a5439f0e/api/graphql';
-const DB_TOKEN = 'hdapp_14XB0jPjYLAiG59oHIP5c507SCpJJmMrQ2EdXaAaXHy6ZGr1';
+const DB_ENDPOINT = window.__APP_CONFIG__?.DB_ENDPOINT || '/api/graphql';
+const DB_TOKEN = window.__APP_CONFIG__?.DB_TOKEN || '';
 
 const DB = {
   async query(sql) {
